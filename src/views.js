@@ -24,6 +24,7 @@ function layout(title, body, { active = '' } = {}) {
   const menu = [
     ['/', '본부'],
     ['/tasks', '업무'],
+    ['/messenger', '메신저'],
     ['/search', '과거 업무 검색'],
     ['/staff', '직원'],
     ['/usage', '사용량'],
@@ -38,6 +39,8 @@ function layout(title, body, { active = '' } = {}) {
 </head><body>
 <header><div class="brand">세타온 본부</div><nav>${menu}</nav></header>
 <main>${body}</main>
+<script src="/socket.io/socket.io.js"></script>
+<script src="/static/app.js"></script>
 </body></html>`;
 }
 

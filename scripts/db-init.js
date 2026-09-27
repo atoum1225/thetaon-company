@@ -2,6 +2,7 @@
 const { Client } = require('pg');
 const { dbConfig, safeMessage } = require('../src/db');
 const { EMPLOYEES } = require('../src/staff');
+const { seed: seedRules } = require('../src/rules');
 
 const SCHEMA = `
 CREATE EXTENSION IF NOT EXISTS pg_trgm;
@@ -143,7 +144,10 @@ CREATE TABLE IF NOT EXISTS system_log (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
-CREATE INDEX IF NOT EXISTS idx_tasks_trgm      ON tasks        USING gin ((title || ' ' || instruction) gin_trgm_ops);
+ALTER TABLE meetings     ADD COLUMN IF NOT EXISTS turn INT NOT NULL DEFAULT 0;
+ALTER TABLE deliverables ADD COLUMN IF NOT EXISTS assignment_idx INT NOT NULL DEFAULT 0;
+
+CREATE INDEX IF NOT EXISTS idx_tasks_trgm     ON tasks        USING gin ((title || ' ' || instruction) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_decisions_trgm  ON decisions    USING gin (content gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_advice_trgm     ON advice       USING gin (content gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_deliv_trgm      ON deliverables USING gin ((title || ' ' || body) gin_trgm_ops);
@@ -179,7 +183,8 @@ async function main() {
       [e.key, e.name, e.title, e.provider, e.model, e.duty, e.deliverables, e.advisorOnly]
     );
   }
-  await db.query(`INSERT INTO system_log (event, message) VALUES ('db-init', '표 점검·직원 명부 갱신')`);
+  await seedRules(db);
+  await db.query(`INSERT INTO system_log (event, message) VALUES ('db-init', '표 점검·직원 명부·금지 수치 목록 갱신')`);
   const n = await db.query('SELECT count(*)::int AS n FROM employees');
   console.log(`표 준비 완료. 직원 ${n.rows[0].n}명 등록.`);
   await db.end();

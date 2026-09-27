@@ -6,7 +6,8 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
-    "db:init": "node scripts/db-init.js"
+    "db:init": "node scripts/db-init.js",
+    "backup": "node scripts/backup.js"
   },
   "license": "UNLICENSED",
   "dependencies": {
