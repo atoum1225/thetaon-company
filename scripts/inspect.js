@@ -9,5 +9,11 @@ const { query, pool } = require('../src/db');
   for (const x of m.rows) console.log(`#${x.task_id ?? '-'} [${x.kind}] ${x.speaker}: ${x.b}`);
   const u = await query(`SELECT purpose, count(*)::int n, count(*) FILTER (WHERE NOT ok)::int fail FROM ai_usage ${id ? 'WHERE task_id=$1' : ''} GROUP BY purpose`, id ? [id] : []);
   console.table(u.rows);
+  if (process.argv.includes('--calls')) {
+    const c = await query(
+      `SELECT u.purpose, e.name, u.model, round(u.duration_ms / 1000.0) AS sec, u.input_tokens AS tin, u.output_tokens AS tout, u.ok
+       FROM ai_usage u JOIN employees e ON e.id = u.employee_id ${id ? 'WHERE u.task_id=$1' : ''} ORDER BY u.id`, id ? [id] : []);
+    console.table(c.rows);
+  }
   await pool.end();
 })();

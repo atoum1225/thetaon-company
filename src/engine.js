@@ -272,12 +272,15 @@ const STEPS = {
     const r = await ask('김비서', {
       taskId: t.id, purpose: 'minutes', schema: S.minutes,
       prompt: `${defText(t)}\n\n${(await rejectReasons(t.id)) || ''}\n\n[회의 대화]\n${await transcript(t.id, m.created_at)}\n\n` +
-        `[할 일]\n회의록(minutes, 논의 흐름 요약 5~10문장), 결정사항(decisions, 근거 포함), 업무 배정(assignments: 담당자는 황기획·송개발·서영업 중, 각자 무엇을 만들지 구체적으로), ` +
+        `[할 일]\n회의록(minutes, 논의 흐름 요약 5~10문장), 결정사항(decisions, 근거 포함), 업무 배정(assignments: 담당자는 이번 회의 참석자(${m.attendees.filter((a) => a !== '쫑전략').join(', ')}) 중에서 고르는 것이 원칙이고, 꼭 다른 직원이 필요하면 회의록에 이유를 적는다. 각자 무엇을 만들지 구체적으로), ` +
         `검수 기준(review_criteria: 김비서가 결과물을 통과/미달로 판정할 기준을 번호로)을 만든다. 금지 수치 검사 통과는 기준에 항상 넣는다.` +
         (t.reject_count ? '\n반려 사유를 어떻게 반영했는지 회의록에 적는다.' : ''),
     });
     const j = r.json;
     j.assignments = j.assignments.filter((a) => STAFF.includes(a.employee));
+    // 회의에 없던 직원이 배정받으면 사정을 모른 채 일하게 되므로, 승인 화면에서 보이게 표시한다.
+    const absent = [...new Set(j.assignments.map((a) => a.employee).filter((e) => !m.attendees.includes(e)))];
+    if (absent.length) j.minutes += `\n\n(참고: ${absent.join(', ')}은 회의에 참석하지 않았지만 배정에 포함됐습니다.)`;
     if (!j.assignments.length) throw new Error('배정안에 담당자가 없습니다.');
     await query('UPDATE meetings SET minutes=$2, assignment_plan=$3, review_criteria=$4 WHERE id=$1',
       [m.id, j.minutes, { decisions: j.decisions, assignments: j.assignments }, j.review_criteria]);
