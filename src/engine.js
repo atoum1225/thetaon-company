@@ -75,7 +75,13 @@ async function transcript(taskId, since = null, maxChars = 18000) {
 
 async function ceoTalk(taskId) {
   const r = await query(`SELECT body, created_at FROM messages WHERE task_id=$1 AND kind='CEO' ORDER BY id`, [taskId]);
-  return r.rows.length ? r.rows.map((m) => `- ${m.body}`).join('\n') : '(없음)';
+  // 직원이 일하고 있다는 것은 대표님이 "다시 진행"을 눌렀다는 뜻이다. 예전 멈춤 지시를 지금도 유효한 것으로 읽으면
+  // 아무것도 만들지 않고 "멈춤 상태라 못 한다"는 보고만 올리게 된다(2026-09-27 업무 #2·#3에서 실제로 일어남).
+  return r.rows.length
+    ? r.rows.map((m) => (STOP_RE.test(m.body)
+      ? `- (해제된 멈춤 지시) "${m.body}" — 대표님이 이후 "다시 진행"을 눌러 작업을 재개시켰다. 지금은 배정된 일을 끝까지 해야 한다.`
+      : `- ${m.body}`)).join('\n')
+    : '(없음)';
 }
 
 function defText(t) {

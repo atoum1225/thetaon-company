@@ -18,12 +18,12 @@ const DEFAULT_RULES = [
   ['forbidden', '다올 −64.5%', '다올TS 기준선 값 인용 금지. 폐기 수치 64%와 같은 숫자로 읽힌다.', '64\\.5\\s?%'],
   ['forbidden', '−44.9%', 'θ-Engine 헤드라인 −44.9% 인용 불가.', '44\\.9\\s?%'],
   ['forbidden', '−69%', 'θ-Engine 헤드라인 −69% 인용 불가.', '[-−–]\\s?69\\s?%'],
-  ['forbidden', 'BERT 0.98', '품질 BERT Score 0.98 행은 삭제하기로 한 것(2026-09-07).', '[Bb][Ee][Rr][Tt]\\s?(?:[Ss]core\\s?)?0\\.98'],
+  ['forbidden', 'BERT 0.98', '다올TS PoC 보고서의 품질 BERT Score 0.98 행은 삭제하기로 한 것(2026-09-07). Intel AI PC의 BERTScore 0.972는 2026-07-20 확정 인용값이라 별개다.', '[Bb][Ee][Rr][Tt]\\s?(?:[Ss]core\\s?)?0\\.98'],
   ['forbidden', '고객사 H/W PoC 라벨', '(고객사 제공 H/W PoC 기준) 라벨 금지. 저장 도메인 PoC는 없다.', '고객사\\s?제공\\s?H/?W\\s?PoC'],
   ['forbidden', '30% TCO Down', '30% TCO Down(PoC기준) 금지. PoC 근거 미확인.', '30\\s?%\\s?TCO'],
   ['forbidden', '토큰 절감 22.7%', '토큰당 에너지(J/tok) −22.7%를 "토큰 절감"으로 부르면 안 된다.', '토큰\\s?(?:수\\s?)?절감[^\\n]{0,12}22\\.7'],
   ['conditional', '−63.4%', '−63.4%는 4조건을 모두 갖춘 경우만: 에너지(J) 표기, 운전점 조건(고정 batch=4 대비 batch=1 자동 선택 구간), 작업량 차이 공개(Baseline 약 2.1배), −22.7% 동시 병기. 단독 사용 금지.', '63\\.4\\s?%'],
-  ['conditional', '−22.7%', '토큰당 에너지 −22.7%(J/tok)는 측정 조건 병기: GPU 소켓 기준, H200×4·TP4·72B NF4, pynvml 50ms, 6회 반복.', '22\\.7\\s?%'],
+  ['conditional', '−22.7%', '토큰당 에너지 −22.7%(J/tok)는 측정 조건을 병기한다(GPU 소켓 기준, H200×4·72B 등). 반복 횟수 같은 세부 조건은 문서마다 다를 수 있으니, 인용한 근거 문서에 적힌 조건을 그대로 쓴다.', '22\\.7\\s?%'],
   ['conditional', '26.8×', 'Intel "Ollama 대비 에너지 효율 26.8×, 속도 +1.87×"는 동일 모델·동일 기기, GPU INT8, Galaxy Book6 Pro 조건 병기.', '26\\.8\\s?(?:×|x|배)'],
   ['conditional', '저장 85%', '저장 85%↓·인덱싱 60%↓·재처리 80%↓는 (Target) 라벨과 정해진 각주를 붙이고, 실측 수치와 같은 페이지에 두지 않는다.', '(?:저장|STORAGE|스토리지)[^\\n]{0,15}85\\s?%|85\\s?%\\s?↓'],
   ['conditional', 'GPU 전력 수치', '전력(W)과 에너지(J)를 구분한다. 총 에너지를 "전력"으로 부르지 않는다.', 'GPU\\s?전력[^\\n]{0,10}[-−]?\\s?\\d+(?:\\.\\d+)?\\s?%'],
@@ -67,15 +67,13 @@ async function loadRules() {
   return cache;
 }
 
-// 글에서 걸리는 표현을 찾는다. [{level, key, content, match}]
-async function scan(text) {
-  const rules = await loadRules();
+function scanWith(rules, text) {
   const hits = [];
   for (const r of rules) {
     r.re.lastIndex = 0;
     const found = new Set();
     let m;
-    while ((m = r.re.exec(String(text || ''))) !== null) {
+    while ((m = r.re.exec(text)) !== null) {
       found.add(m[0].trim());
       if (m.index === r.re.lastIndex) r.re.lastIndex++;
     }
@@ -84,11 +82,29 @@ async function scan(text) {
   return hits;
 }
 
+// 글에서 걸리는 표현을 찾는다. [{level, key, content, match}]
+// 정정 대조표처럼 틀린 원문을 보여줘야 할 때는 ~~취소선~~ 안에 넣는다. 그 안의 금지 표현은
+// "원문 인용"(quoted)으로만 표시하고 검수 자동 미달에서 뺀다.
+async function scan(text) {
+  const rules = await loadRules();
+  const quoted = [];
+  const plain = String(text || '').replace(/~~([\s\S]*?)~~/g, (all, inner) => {
+    quoted.push(inner);
+    return ' '.repeat(all.length);
+  });
+  const hits = scanWith(rules, plain);
+  for (const q of quoted) {
+    for (const h of scanWith(rules, q)) if (h.level === 'forbidden') hits.push({ ...h, level: 'quoted' });
+  }
+  return hits;
+}
+
 async function rulesText() {
   const rules = await loadRules();
   const f = rules.filter((r) => r.category === 'forbidden').map((r) => `- ${r.key}: ${r.content}`);
   const c = rules.filter((r) => r.category === 'conditional').map((r) => `- ${r.key}: ${r.content}`);
-  return `[쓰면 안 되는 수치·표현]\n${f.join('\n')}\n\n[조건을 갖춰야 쓸 수 있는 수치]\n${c.join('\n')}`;
+  return `[쓰면 안 되는 수치·표현]\n${f.join('\n')}\n\n[조건을 갖춰야 쓸 수 있는 수치]\n${c.join('\n')}\n\n` +
+    `[정정표에서 틀린 원문을 보여줘야 할 때]\n고쳐야 할 원문 문구는 ~~취소선~~으로 감싸서 인용한다(예: ~~GPU 전력 -64%~~). 취소선 안은 "원문 인용"으로 보고 금지 수치 검사에서 빼 준다. 취소선 없이 그대로 쓰면 검수에서 자동 미달이다. 대외로 나가는 문서에는 취소선 인용도 넣지 않는다.`;
 }
 
 async function companyText() {
@@ -96,9 +112,11 @@ async function companyText() {
   return r.rows.map((x) => `- ${x.key}: ${x.content}`).join('\n');
 }
 
+const LEVEL_NAMES = { forbidden: '금지', conditional: '조건 확인', quoted: '원문 인용(취소선)' };
+
 function hitsText(hits) {
   if (!hits || !hits.length) return '걸린 표현 없음';
-  return hits.map((h) => `- [${h.level === 'forbidden' ? '금지' : '조건 확인'}] "${h.match}" — ${h.content}`).join('\n');
+  return hits.map((h) => `- [${LEVEL_NAMES[h.level] || h.level}] "${h.match}" — ${h.content}`).join('\n');
 }
 
-module.exports = { seed, scan, rulesText, companyText, hitsText, loadRules };
+module.exports = { seed, scan, rulesText, companyText, hitsText, loadRules, LEVEL_NAMES };

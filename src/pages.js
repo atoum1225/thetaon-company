@@ -172,7 +172,7 @@ function planHtml(m) {
 
 function hitsHtml(hits) {
   if (!hits || !hits.length) return '';
-  return `<p class="muted">금지 수치 검사: ${hits.map((h) => `<span class="${h.level === 'forbidden' ? 'bad' : ''}">${h.level === 'forbidden' ? '금지' : '조건 확인'} "${esc(h.match)}"</span>`).join(', ')}</p>`;
+  return `<p class="muted">금지 수치 검사: ${hits.map((h) => `<span class="${h.level === 'forbidden' ? 'bad' : ''}">${rules.LEVEL_NAMES[h.level] || h.level} "${esc(h.match)}"</span>`).join(', ')}</p>`;
 }
 
 function stepsHtml(t) {

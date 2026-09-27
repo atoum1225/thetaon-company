@@ -13,6 +13,9 @@ const cases = [
   ['토큰당 에너지 −22.7%(J/tok, GPU 소켓 기준, H200×4·72B)', false],
   ['Ollama 대비 에너지 효율 26.8×', false],
   ['다올TS θ vs vLLM 에너지 −16.73%', false],
+  ['| p12 | ~~GPU 전력 -64%~~ | 토큰당 에너지 −22.7%(J/tok) |', false],
+  ['| p13 | ~~GPU 전력 절감 25 ~ 63%~~ | 삭제 | 그런데 본문에 64% 절감', true],
+  ['Intel 품질 BERTScore 0.972', false],
 ];
 
 (async () => {
