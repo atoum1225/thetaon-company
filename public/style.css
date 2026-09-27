@@ -56,3 +56,9 @@ a.tab.on { background: var(--accent); color: #fff; }
 .msg.ceo { background: #fef3c7; border-color: #fcd34d; }
 .msg.sys { background: transparent; border: 0; color: var(--muted); font-size: 13px; }
 .chat-form { display: flex; gap: 8px; margin-top: 8px; } .chat-form input { flex: 1; }
+
+/* 지금 작업 중 표시 */
+.working { margin-top: 8px; padding: 6px 10px; border-radius: 6px; background: #eef2ff; color: #3730a3; font-size: 13px; }
+.chat.all .working { margin: 0 0 8px; }
+.dots::after { content: '●'; animation: blink 1s infinite; margin-right: 4px; }
+@keyframes blink { 50% { opacity: .2; } }

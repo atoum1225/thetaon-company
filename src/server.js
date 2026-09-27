@@ -43,6 +43,10 @@ const io = new Server(server, {
 });
 bus.on('message', (m) => io.emit('message', m));
 bus.on('task', (t) => io.emit('task', t));
+bus.on('working', (w) => io.emit('working', w));
+io.on('connection', (socket) => {
+  if (bus.current) socket.emit('working', bus.current);
+});
 
 server.listen(PORT, HOST, async () => {
   console.log(`세타온 본부가 켜졌습니다: http://${HOST}:${PORT}  (끄려면 Ctrl + C)`);

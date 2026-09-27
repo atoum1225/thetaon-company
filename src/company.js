@@ -3,6 +3,7 @@ const { query, safeMessage } = require('./db');
 const { callClaude, callGemini, AiError } = require('./ai');
 const { EMPLOYEES, personaPrompt } = require('./staff');
 const mock = require('./mock');
+const bus = require('./bus');
 
 const MAX_CALLS_PER_TASK = Number(process.env.MAX_CALLS_PER_TASK || 70);
 
@@ -22,6 +23,7 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
     }
   }
   const started = Date.now();
+  bus.startWork({ taskId, who: emp.name, purpose, startedAt: started });
   try {
     let res;
     if (process.env.AI_MOCK === '1') {
@@ -46,6 +48,8 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
       [taskId, emp.id, emp.provider, emp.model, purpose, Date.now() - started, safeMessage(err).slice(0, 500)]
     ).catch(() => {});
     throw err;
+  } finally {
+    bus.endWork();
   }
 }
 

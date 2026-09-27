@@ -21,6 +21,7 @@ function chatPanel(taskId, title) {
   <div class="card chat" data-task="${taskId ?? ''}">
     <div class="chat-head">메신저 <span class="muted">${esc(title)}</span> <span class="live muted">연결 중…</span></div>
     <div class="chat-log"></div>
+    <div class="working" data-task="${taskId ?? ''}" hidden></div>
     <form class="chat-form">
       <input type="text" name="body" placeholder="대표님 말씀을 입력하세요 (멈추려면 '멈춰')" autocomplete="off">
       <button>보내기</button>
@@ -47,7 +48,7 @@ router.get('/', async (req, res) => {
   res.send(layout('본부', `
     ${notice(req)}
     <h1>세타온 본부</h1>
-    <div class="card">${dbLine} &nbsp;·&nbsp; 진행기: ${st.busy ? `<b>업무 #${st.current ?? '-'} 처리 중</b>` : '대기 중'}${st.queued ? `, 대기 ${st.queued}건` : ''}${process.env.AI_MOCK === '1' ? ' &nbsp;<span class="bad">[가짜 AI 시험 모드]</span>' : ''}</div>
+    <div class="card" data-live="engine">${dbLine} &nbsp;·&nbsp; 진행기: ${st.busy ? `<b>업무 #${st.current ?? '-'} 처리 중</b>` : '대기 중'}${st.queued ? `, 대기 ${st.queued}건` : ''}${process.env.AI_MOCK === '1' ? ' &nbsp;<span class="bad">[가짜 AI 시험 모드]</span>' : ''}</div>
     <div class="card">
       <h2 style="margin-top:0">김비서에게 업무 지시</h2>
       <form method="post" action="/tasks">
@@ -55,9 +56,9 @@ router.get('/', async (req, res) => {
         <p><button>지시하기</button> <span class="muted">지시하면 김비서가 과제를 정리하고 회의를 엽니다. 배정안이 나오면 승인을 요청드립니다.</span></p>
       </form>
     </div>
-    <div class="card">${counts}</div>
+    <div class="card" data-live="counts">${counts}</div>
     <div class="row">
-      <div><h2>최근 업무</h2><table><tr><th>번호</th><th>업무</th><th>상태</th><th>갱신</th></tr>${recent || '<tr><td colspan="4" class="muted">없음</td></tr>'}</table></div>
+      <div data-live="recent"><h2>최근 업무</h2><table><tr><th>번호</th><th>업무</th><th>상태</th><th>갱신</th></tr>${recent || '<tr><td colspan="4" class="muted">없음</td></tr>'}</table></div>
       <div><h2>일반 대화</h2>${chatPanel(null, '업무와 무관한 대화 · 김비서가 답합니다')}</div>
     </div>
   `, { active: '/' }));
@@ -74,7 +75,7 @@ router.get('/tasks', async (req, res) => {
   const rows = r.rows.map((t) => `<tr><td>#${t.id}</td><td><a href="/tasks/${t.id}">${esc(t.title)}</a></td><td>${badge(t.status)}</td>
     <td class="muted">${STEP_NAMES[t.step] || ''}</td><td>${esc(t.deadline || '')}</td><td>${t.reject_count}/${t.rework_count}</td><td class="muted">${fmt(t.created_at)}</td></tr>`).join('');
   res.send(layout('업무', `${notice(req)}<h1>업무</h1><p>${tabs}</p>
-    <table><tr><th>번호</th><th>업무</th><th>상태</th><th>단계</th><th>마감</th><th>반려/재작업</th><th>지시 시각</th></tr>${rows || '<tr><td colspan="7" class="muted">없음</td></tr>'}</table>`, { active: '/tasks' }));
+    <table data-live="list"><tr><th>번호</th><th>업무</th><th>상태</th><th>단계</th><th>마감</th><th>반려/재작업</th><th>지시 시각</th></tr>${rows || '<tr><td colspan="7" class="muted">없음</td></tr>'}</table>`, { active: '/tasks' }));
 });
 
 router.post('/tasks', async (req, res) => {
@@ -134,6 +135,7 @@ router.get('/tasks/:id', async (req, res) => {
 
   res.send(layout(`업무 #${id}`, `
     ${notice(req)}
+    <div data-live="top">
     <h1>#${id} ${esc(t.title)} ${badge(t.status)}</h1>
     <div class="card">
       <div class="steps">${stepsHtml(t)}</div>
@@ -142,8 +144,9 @@ router.get('/tasks/:id', async (req, res) => {
       ${controls.join(' ')}
     </div>
     ${approval}
+    </div>
     <div class="row wide">
-      <div>
+      <div data-live="left">
         <div class="card"><h2 style="margin-top:0">지시와 과제 정의</h2>
           <p><b>CEO 지시:</b> ${esc(t.instruction)}</p>
           ${d.goal ? `<p><b>목표:</b> ${esc(d.goal)}</p><p><b>범위:</b> ${esc(d.scope)}</p><p><b>참석:</b> ${esc((d.attendees || []).join(', '))}, 쫑전략(조언자)</p>` : ''}
@@ -225,7 +228,7 @@ router.post('/api/messages', async (req, res) => {
 router.get('/messenger', async (req, res) => {
   const r = await query(`SELECT m.*, t.title FROM (SELECT * FROM messages ORDER BY id DESC LIMIT 200) m LEFT JOIN tasks t ON t.id=m.task_id ORDER BY m.id`);
   res.send(layout('메신저', `<h1>전체 메신저</h1><p class="muted">모든 업무의 대화가 실시간으로 올라옵니다. 말을 거시려면 해당 업무 화면이나 본부의 일반 대화 창을 쓰세요.</p>
-    <div class="card chat all" data-all="1"><div class="chat-head">전체 대화 <span class="live muted">연결 중…</span></div><div class="chat-log tall">${r.rows.map((m) => msgHtml(m, true)).join('')}</div></div>`, { active: '/messenger' }));
+    <div class="card chat all" data-all="1"><div class="chat-head">전체 대화 <span class="live muted">연결 중…</span></div><div class="working" data-all="1" hidden></div><div class="chat-log tall">${r.rows.map((m) => msgHtml(m, true)).join('')}</div></div>`, { active: '/messenger' }));
 });
 
 function msgHtml(m, withTask) {

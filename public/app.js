@@ -1,11 +1,65 @@
-// 메신저 화면: 대화를 실시간으로 보여 주고 대표님 말씀을 보낸다.
+// 실시간 화면: 메신저 대화, "지금 누가 무슨 일 하는 중" 표시, 진행 상황 부분 갱신.
 (function () {
-  const panels = document.querySelectorAll('.chat');
-  if (!panels.length || typeof io === 'undefined') return;
+  if (typeof io === 'undefined') return;
+  const socket = io();
 
   const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
   const fmt = (d) => new Date(d).toLocaleString('ko-KR', { hour12: false });
+  const pageTask = (location.pathname.match(/^\/tasks\/(\d+)$/) || [])[1] || null;
 
+  // ───── 진행 상황 부분 갱신 ─────
+  // 페이지 전체를 새로 고치지 않고 data-live 표시가 붙은 부분만 바꾼다(메신저 스크롤·입력 중인 글은 그대로).
+  let refreshTimer = null;
+  function scheduleRefresh() {
+    if (!document.querySelector('[data-live]')) return;
+    clearTimeout(refreshTimer);
+    refreshTimer = setTimeout(refreshLive, 700);
+  }
+  async function refreshLive() {
+    let html;
+    try { html = await (await fetch(location.href, { headers: { 'X-Live': '1' } })).text(); } catch { return; }
+    const fresh = new DOMParser().parseFromString(html, 'text/html');
+    document.querySelectorAll('[data-live]').forEach((el) => {
+      const next = fresh.querySelector(`[data-live="${el.dataset.live}"]`);
+      if (!next) return;
+      const a = document.activeElement;
+      if (a && el.contains(a) && ['INPUT', 'TEXTAREA', 'SELECT'].includes(a.tagName) && a.value) return; // 입력 중이면 건드리지 않음
+      const open = new Set([...el.querySelectorAll('details[open] > summary')].map((s) => s.textContent));
+      const closed = new Set([...el.querySelectorAll('details:not([open]) > summary')].map((s) => s.textContent));
+      el.innerHTML = next.innerHTML;
+      el.querySelectorAll('details > summary').forEach((s) => {
+        if (open.has(s.textContent)) s.parentElement.open = true;
+        else if (closed.has(s.textContent)) s.parentElement.open = false;
+      });
+    });
+  }
+  socket.on('task', (t) => { if (!pageTask || String(t.id) === pageTask) scheduleRefresh(); });
+  socket.on('message', (m) => { if (!pageTask || String(m.task_id ?? '') === pageTask) scheduleRefresh(); });
+
+  // ───── 지금 작업 중 표시 ─────
+  let work = null;
+  let workTimer = null;
+  function paintWork() {
+    document.querySelectorAll('.working').forEach((el) => {
+      const panelTask = el.dataset.task ?? '';
+      const show = work && (el.dataset.all === '1' || String(work.taskId ?? '') === panelTask);
+      if (!show) { el.hidden = true; return; }
+      const sec = Math.max(0, Math.round((Date.now() - work.startedAt) / 1000));
+      el.hidden = false;
+      el.innerHTML = `<span class="dots"></span> ${esc(work.label)}${work.taskId && el.dataset.all === '1' ? ` (업무 #${work.taskId})` : ''} · ${sec}초`;
+    });
+  }
+  socket.on('working', (w) => {
+    if (w.done) { work = null; clearInterval(workTimer); workTimer = null; }
+    else {
+      work = w;
+      if (!workTimer) workTimer = setInterval(paintWork, 1000);
+    }
+    paintWork();
+    if (w.done) scheduleRefresh();
+  });
+
+  // ───── 메신저 ─────
   function render(m, withTask) {
     const cls = m.kind === 'CEO' ? 'ceo' : m.kind === '시스템' ? 'sys' : '';
     const who = m.kind === 'CEO' ? '대표님' : m.speaker;
@@ -16,8 +70,7 @@
     return div;
   }
 
-  const socket = io();
-  panels.forEach((panel) => {
+  document.querySelectorAll('.chat').forEach((panel) => {
     const all = panel.dataset.all === '1';
     const taskId = panel.dataset.task || '';
     const log = panel.querySelector('.chat-log');
@@ -63,14 +116,4 @@
       });
     }
   });
-
-  // 업무 상태가 바뀌면 업무 화면을 새로 고친다(입력 중이 아닐 때만).
-  const m = location.pathname.match(/^\/tasks\/(\d+)$/);
-  if (m) {
-    socket.on('task', (t) => {
-      if (String(t.id) !== m[1]) return;
-      const typing = document.activeElement && ['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName) && document.activeElement.value;
-      if (!typing) location.reload();
-    });
-  }
 })();
