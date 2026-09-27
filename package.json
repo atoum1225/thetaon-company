@@ -1,0 +1,18 @@
+{
+  "name": "thetaon-company",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ThetaON AI virtual company (local only)",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "db:init": "node scripts/db-init.js"
+  },
+  "license": "UNLICENSED",
+  "dependencies": {
+    "dotenv": "^18.0.4",
+    "express": "^5.2.1",
+    "pg": "^8.23.0",
+    "socket.io": "^4.8.4"
+  }
+}
