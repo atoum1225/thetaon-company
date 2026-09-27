@@ -1,5 +1,9 @@
 {
   "permissions": {
+    "allow": [
+      "PowerShell(git push)",
+      "Bash(git push)"
+    ],
     "deny": [
       "Read(./.env)",
       "Read(./.env.*)",

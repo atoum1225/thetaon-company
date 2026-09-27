@@ -7,6 +7,8 @@ const rules = require('./rules');
 const memory = require('./memory');
 
 const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언'];
+// 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
+const PAUSABLE = [...ACTIVE, '승인대기', '한도대기'];
 const STAFF = ['황기획', '송개발', '서영업'];
 const MAX_ROUNDS = 3;
 const MAX_REWORK = 2;
@@ -425,7 +427,7 @@ async function handleInterrupts(t) {
   const r = await query(`SELECT * FROM messages WHERE task_id=$1 AND kind='CEO' AND handled=false ORDER BY id`, [t.id]);
   if (!r.rows.length) return null;
   const ids = r.rows.map((x) => x.id);
-  if (r.rows.some((x) => STOP_RE.test(x.body)) && ACTIVE.includes(t.status)) {
+  if (r.rows.some((x) => STOP_RE.test(x.body)) && PAUSABLE.includes(t.status)) {
     await query('UPDATE messages SET handled=true WHERE id = ANY($1)', [ids]);
     await setTask(t.id, { status: '일시정지', paused_status: t.status });
     await event(t.id, '일시정지', 'CEO');
@@ -565,7 +567,7 @@ async function reject(id, reason) {
 
 async function pause(id) {
   const t = await getTask(id);
-  if (!t || !(ACTIVE.includes(t.status) || t.status === '한도대기')) throw new Error('지금은 멈출 수 있는 상태가 아닙니다.');
+  if (!t || !PAUSABLE.includes(t.status)) throw new Error('지금은 멈출 수 있는 상태가 아닙니다.');
   await setTask(id, { status: '일시정지', paused_status: t.status });
   await event(id, '일시정지', 'CEO');
   await post(id, '시스템', '일시정지했습니다. 지금 진행 중인 발언 하나가 끝나면 멈춥니다.', '시스템');
@@ -582,6 +584,7 @@ async function resume(id) {
 
 async function ceoSay(taskId, body) {
   const t = taskId ? await getTask(taskId) : null;
+  if (taskId && !t) throw new Error(`업무 #${taskId}을 찾을 수 없습니다.`);
   let meetingId = null;
   if (t && t.status === '회의중') meetingId = (await latestMeeting(taskId))?.id || null;
   const r = await query(
@@ -614,4 +617,4 @@ function state() {
   return { busy, current, queued: queue.length };
 }
 
-module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, ACTIVE };
+module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, ACTIVE, PAUSABLE };

@@ -99,7 +99,7 @@ router.get('/tasks/:id', async (req, res) => {
   const last = meetings[meetings.length - 1];
 
   const controls = [];
-  if (engine.ACTIVE.includes(t.status) || t.status === '한도대기') controls.push(`<form method="post" action="/tasks/${id}/pause" class="inline"><button class="gray">일시정지</button></form>`);
+  if (engine.PAUSABLE.includes(t.status)) controls.push(`<form method="post" action="/tasks/${id}/pause" class="inline"><button class="gray">일시정지</button></form>`);
   if (['일시정지', '한도대기', '실패'].includes(t.status)) controls.push(`<form method="post" action="/tasks/${id}/resume" class="inline"><button class="green">다시 진행</button></form>`);
 
   const approval = t.status === '승인대기' && last ? `
