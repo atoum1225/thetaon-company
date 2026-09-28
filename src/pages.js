@@ -1,7 +1,7 @@
 // 업무 사이트 화면들.
 const express = require('express');
 const { query, safeMessage } = require('./db');
-const { layout, esc, badge } = require('./views');
+const { layout, esc, badge, icon, avatar } = require('./views');
 const engine = require('./engine');
 const memory = require('./memory');
 const rules = require('./rules');
@@ -21,63 +21,168 @@ const notice = (req) => (req.query.msg ? `<div class="card notice">${esc(req.que
 function chatPanel(taskId, title) {
   return `
   <div class="card chat" data-task="${taskId ?? ''}">
-    <div class="chat-head">메신저 <span class="muted">${esc(title)}</span> <span class="live muted">연결 중…</span></div>
+    <div class="chat-head">${icon('chat', 18)}메신저 <span class="muted">${esc(title)}</span> <span class="live muted">연결 중…</span></div>
     <div class="chat-log"></div>
     <div class="working" data-task="${taskId ?? ''}" hidden></div>
     <form class="chat-form">
-      <input type="text" name="body" placeholder="대표님 말씀을 입력하세요 (멈추려면 '멈춰')" autocomplete="off">
-      <button>보내기</button>
+      <input type="text" name="body" placeholder="대표님 말씀 (멈추려면 '멈춰', 이어서는 '다시 진행')" autocomplete="off">
+      <button>${icon('send', 16)}보내기</button>
     </form>
   </div>`;
 }
 
-// ───── 본부(첫 화면) ─────
+// 진행 단계를 막대로(⑥ 승인 대기까지가 절반쯤)
+function progressBar(t) {
+  const pct = t.status === '완료' ? 100 : Math.round(((Math.min(t.step, 10) - 1) / 10) * 100);
+  const cls = t.status === '완료' ? 'done' : ['일시정지', '실패', '한도대기'].includes(t.status) ? 'stop' : '';
+  return `<div class="progress ${cls}" title="${esc(STEP_NAMES[t.step] || '')}"><i style="width:${Math.max(pct, 4)}%"></i></div>`;
+}
+
+const WEEKDAY = ['일', '월', '화', '수', '목', '금', '토'];
+const EXAMPLES = [
+  '비이랩에 보낼 KT 카탈로그 요금 설명 메일 문안을 써 줘. 마감 10/2.',
+  'IR 9월판에 남은 금지 수치를 점검하고 고칠 문안을 표로 정리해 줘.',
+  '이번 주 파트너 미팅 준비 자료를 한 쪽으로 정리해 줘.',
+];
+
+async function statusCounts() {
+  const c = await query(`SELECT status, count(*)::int AS n,
+    count(*) FILTER (WHERE status='완료' AND completed_at >= date_trunc('day', now()))::int AS today FROM tasks GROUP BY status`);
+  const by = Object.fromEntries(c.rows.map((x) => [x.status, x.n]));
+  const n = (...s) => s.reduce((a, k) => a + (by[k] || 0), 0);
+  return {
+    approval: n('승인대기'),
+    active: n('접수', '회의중', '수행중', '검수중', '전략조언'),
+    today: c.rows.reduce((a, x) => a + x.today, 0),
+    trouble: n('일시정지', '한도대기', '실패'),
+    all: c.rows.reduce((a, x) => a + x.n, 0),
+    done: n('완료'),
+    by,
+  };
+}
+
+// 왼쪽 메뉴 숫자 배지(화면이 실시간으로 불러감)
+router.get('/api/counts', async (req, res) => {
+  const s = await statusCounts();
+  res.json({ approval: s.approval, all: s.active + s.approval });
+});
+
+// ───── 대시보드(첫 화면) ─────
 router.get('/', async (req, res) => {
-  let dbLine;
-  let counts = '';
-  let recent = '';
-  try {
-    const v = await query('SELECT version() AS v');
-    dbLine = `<span class="ok">DB 연결됨</span> <span class="muted">${esc(v.rows[0].v.split(',')[0])}</span>`;
-    const c = await query('SELECT status, count(*)::int AS n FROM tasks GROUP BY status');
-    counts = c.rows.map((x) => `${badge(x.status)} ${x.n}건`).join(' &nbsp; ') || '<span class="muted">아직 업무가 없습니다.</span>';
-    const r = await query('SELECT id, title, status, updated_at FROM tasks ORDER BY updated_at DESC LIMIT 8');
-    recent = r.rows.map((t) => `<tr><td>#${t.id}</td><td><a href="/tasks/${t.id}">${esc(t.title)}</a></td><td>${badge(t.status)}</td><td class="muted">${fmt(t.updated_at)}</td></tr>`).join('');
-  } catch (err) {
-    dbLine = `<span class="bad">DB 연결 안 됨</span> ${esc(safeMessage(err))}`;
+  let s;
+  let dbErr = null;
+  try { s = await statusCounts(); } catch (err) { dbErr = safeMessage(err); }
+  if (dbErr) {
+    return res.send(layout('대시보드', `<div class="card bad">DB 연결 안 됨: ${esc(dbErr)}</div>`, { active: '/' }));
   }
+  const approvals = (await query(`SELECT t.id, t.title, t.updated_at, t.reject_count,
+      (SELECT jsonb_array_length(assignment_plan->'assignments') FROM meetings m WHERE m.task_id=t.id ORDER BY attempt DESC LIMIT 1) AS n
+    FROM tasks t WHERE status='승인대기' ORDER BY updated_at LIMIT 6`)).rows;
+  const active = (await query(`SELECT id, title, status, step, updated_at FROM tasks
+    WHERE status NOT IN ('완료','승인대기') ORDER BY updated_at DESC LIMIT 6`)).rows;
+  const done = (await query(`SELECT id, title, completed_at, wiki_path FROM tasks WHERE status='완료' ORDER BY completed_at DESC LIMIT 5`)).rows;
+  const staff = (await query(`SELECT e.name, e.title, e.provider, e.model,
+      (SELECT count(*)::int FROM ai_usage u WHERE u.employee_id=e.id AND u.created_at >= date_trunc('day', now())) AS today
+    FROM employees e ORDER BY e.id`)).rows;
+  const now = new Date();
   const st = engine.state();
-  res.send(layout('본부', `
+
+  const stat = (href, ic, color, label, num, hot) =>
+    `<a class="stat ${hot ? 'hot' : ''}" href="${href}" style="--c:${color}"><span class="label">${icon(ic, 20)}${label}</span><span class="num">${num}<small>건</small></span></a>`;
+  const empty = (ic, text) => `<div class="empty">${icon(ic, 32)}${text}</div>`;
+
+  res.send(layout('대시보드', `
     ${notice(req)}
-    <h1>세타온 본부</h1>
-    <div class="card" data-live="engine">${dbLine} &nbsp;·&nbsp; 진행기: ${st.busy ? `<b>업무 #${st.current ?? '-'} 처리 중</b>` : '대기 중'}${st.queued ? `, 대기 ${st.queued}건` : ''}${process.env.AI_MOCK === '1' ? ' &nbsp;<span class="bad">[가짜 AI 시험 모드]</span>' : ''}</div>
-    <div class="card">
-      <h2 style="margin-top:0">김비서에게 업무 지시</h2>
-      <form method="post" action="/tasks">
-        <textarea name="instruction" placeholder="예: 비이랩 4차 미팅 결과를 바탕으로 KT 카탈로그 요금 설명 자료 초안을 만들어 줘. 마감 10/2." required></textarea>
-        <p><button>지시하기</button> <span class="muted">지시하면 김비서가 과제를 정리하고 회의를 엽니다. 배정안이 나오면 승인을 요청드립니다.</span></p>
-      </form>
+    ${process.env.AI_MOCK === '1' ? '<div class="card bad">가짜 AI 시험 모드입니다. 실제 AI를 부르지 않습니다.</div>' : ''}
+    <div class="dash-top">
+      <div class="card profile">
+        ${avatar('대표님', 64)}
+        <div>
+          <div class="who">대표님</div>
+          <div class="sub">(주)세타온 · CEO</div>
+          <div class="today">${now.getFullYear()}년 ${now.getMonth() + 1}월 ${now.getDate()}일 (${WEEKDAY[now.getDay()]}) · 진행기 ${st.busy ? `업무 #${st.current ?? '-'} 처리 중` : '대기 중'}</div>
+        </div>
+      </div>
+      <div class="stats" data-live="stats">
+        ${stat('/tasks?status=승인대기', 'approve', '#ea580c', '결재 대기', s.approval, s.approval > 0)}
+        ${stat('/tasks?group=active', 'play', '#2563eb', '진행 중', s.active)}
+        ${stat('/tasks?status=완료', 'check', '#16a34a', '오늘 완료', s.today)}
+        ${stat('/tasks?group=trouble', 'alert', '#dc2626', '확인 필요', s.trouble, s.trouble > 0)}
+      </div>
     </div>
-    <div class="card" data-live="counts">${counts}</div>
-    <div class="row">
-      <div data-live="recent"><h2>최근 업무</h2><table><tr><th>번호</th><th>업무</th><th>상태</th><th>갱신</th></tr>${recent || '<tr><td colspan="4" class="muted">없음</td></tr>'}</table></div>
-      <div><h2>일반 대화</h2>${chatPanel(null, '업무와 무관한 대화 · 김비서가 답합니다')}</div>
+
+    <div class="dash-grid">
+      <div>
+        <div class="card" id="new">
+          <div class="card-head">${icon('send')}김비서에게 업무 지시</div>
+          <form method="post" action="/tasks">
+            <textarea name="instruction" id="instruction" placeholder="무엇을 할지, 결과물은 무엇인지, 마감은 언제인지 적어 주세요." required></textarea>
+            <div class="chips">${EXAMPLES.map((e) => `<span class="chip" data-fill="${esc(e)}">${esc(e.length > 28 ? e.slice(0, 27) + '…' : e)}</span>`).join('')}</div>
+            <div class="form-foot"><span class="muted">김비서가 과제를 정리하고 회의를 연 뒤, 배정안이 나오면 결재를 요청드립니다.</span><button>${icon('send', 16)}지시하기</button></div>
+          </form>
+        </div>
+        <div class="card" data-live="active">
+          <div class="card-head">${icon('play')}진행 중인 업무 <a class="more" href="/tasks?group=active">전체 보기</a></div>
+          ${active.length ? `<ul class="list">${active.map((t) => `<li><span class="num">#${t.id}</span>
+            <span class="grow"><a class="title" href="/tasks/${t.id}">${esc(t.title)}</a><span class="meta">${esc(STEP_NAMES[t.step] || '')} · ${fmt(t.updated_at)}</span></span>
+            <span style="width:110px">${progressBar(t)}</span>${badge(t.status)}</li>`).join('')}</ul>` : empty('play', '진행 중인 업무가 없습니다.')}
+        </div>
+      </div>
+
+      <div>
+        <div class="card" data-live="approvals">
+          <div class="card-head">${icon('approve')}결재함 <span class="badge" style="--c:#ea580c">${s.approval}건 대기</span><a class="more" href="/tasks?status=승인대기">전체 보기</a></div>
+          ${approvals.length ? `<ul class="list">${approvals.map((t) => `<li><span class="num">#${t.id}</span>
+            <span class="grow"><a class="title" href="/tasks/${t.id}">${esc(t.title)}</a><span class="meta">업무 배정안 ${t.n || '-'}건${t.reject_count ? ` · 반려 ${t.reject_count}회` : ''} · ${fmt(t.updated_at)}</span></span>
+            <a class="btn" href="/tasks/${t.id}">결재하기</a></li>`).join('')}</ul>` : empty('approve', '결재를 기다리는 배정안이 없습니다.')}
+        </div>
+        <div class="card" data-live="done">
+          <div class="card-head">${icon('file')}최근 완료 보고 <a class="more" href="/tasks?status=완료">전체 보기</a></div>
+          ${done.length ? `<ul class="list">${done.map((t) => `<li><span class="num">#${t.id}</span>
+            <span class="grow"><a class="title" href="/tasks/${t.id}">${esc(t.title)}</a><span class="meta">${fmt(t.completed_at)}${t.wiki_path ? ' · 위키 저장됨' : ''}</span></span>
+            <a class="btn gray" href="/tasks/${t.id}/report" target="_blank">보고서</a></li>`).join('')}</ul>` : empty('file', '아직 완료된 보고가 없습니다.')}
+        </div>
+      </div>
+
+      <div>
+        <div class="card">
+          <div class="card-head">${icon('users')}직원 현황 <a class="more" href="/staff">자세히</a></div>
+          <ul class="list staff">${staff.map((e) => `<li data-staff-row="${esc(e.name)}">${avatar(e.name, 38)}
+            <span class="grow"><span class="title">${esc(e.name)} <span class="muted">${esc(e.title)}</span></span>
+            <span class="state">대기 중</span> <span class="meta">· 오늘 ${e.today}회 · ${e.provider === 'claude' ? 'Claude' : 'Gemini'}</span></span></li>`).join('')}</ul>
+        </div>
+        ${chatPanel(null, '업무와 무관한 대화')}
+      </div>
     </div>
   `, { active: '/' }));
 });
 
-// ───── 업무 목록·지시 ─────
+// ───── 업무함 ─────
 router.get('/tasks', async (req, res) => {
-  const status = req.query.status || '';
+  const status = String(req.query.status || '');
+  const group = String(req.query.group || '');
+  const GROUPS = { active: ['접수', '회의중', '수행중', '검수중', '전략조언'], trouble: ['일시정지', '한도대기', '실패'] };
+  const list = GROUPS[group] || (status ? [status] : null);
   const r = await query(
     `SELECT id, title, status, step, deadline, reject_count, rework_count, created_at, updated_at FROM tasks
-     WHERE ($1 = '' OR status = $1) ORDER BY id DESC LIMIT 200`, [status]);
-  const tabs = ['', '접수', '회의중', '승인대기', '수행중', '검수중', '전략조언', '완료', '일시정지', '한도대기', '실패']
-    .map((s) => `<a class="tab ${s === status ? 'on' : ''}" href="/tasks${s ? `?status=${encodeURIComponent(s)}` : ''}">${s || '전체'}</a>`).join(' ');
-  const rows = r.rows.map((t) => `<tr><td>#${t.id}</td><td><a href="/tasks/${t.id}">${esc(t.title)}</a></td><td>${badge(t.status)}</td>
-    <td class="muted">${STEP_NAMES[t.step] || ''}</td><td>${esc(t.deadline || '')}</td><td>${t.reject_count}/${t.rework_count}</td><td class="muted">${fmt(t.created_at)}</td></tr>`).join('');
-  res.send(layout('업무', `${notice(req)}<h1>업무</h1><p>${tabs}</p>
-    <table data-live="list"><tr><th>번호</th><th>업무</th><th>상태</th><th>단계</th><th>마감</th><th>반려/재작업</th><th>지시 시각</th></tr>${rows || '<tr><td colspan="7" class="muted">없음</td></tr>'}</table>`, { active: '/tasks' }));
+     WHERE ($1::text[] IS NULL OR status = ANY($1)) ORDER BY id DESC LIMIT 200`, [list]);
+  const s = await statusCounts();
+  const tab = (href, label, n, on) => `<a class="tab ${on ? 'on' : ''}" href="${href}">${label}<em>${n}</em></a>`;
+  const tabs = [
+    tab('/tasks', '전체', s.all, !status && !group),
+    tab('/tasks?status=승인대기', '결재 대기', s.approval, status === '승인대기'),
+    tab('/tasks?group=active', '진행 중', s.active, group === 'active'),
+    tab('/tasks?status=완료', '완료', s.done, status === '완료'),
+    tab('/tasks?group=trouble', '확인 필요', s.trouble, group === 'trouble'),
+  ].join('');
+  const rows = r.rows.map((t) => `<tr><td class="muted">#${t.id}</td><td><a href="/tasks/${t.id}"><b>${esc(t.title)}</b></a></td><td>${badge(t.status)}</td>
+    <td><div class="muted" style="margin-bottom:4px">${esc(STEP_NAMES[t.step] || '')}</div>${progressBar(t)}</td><td>${esc(t.deadline || '-')}</td>
+    <td class="muted">${t.reject_count} / ${t.rework_count}</td><td class="muted">${fmt(t.created_at)}</td></tr>`).join('');
+  const title = status === '승인대기' ? '결재 대기' : group === 'active' ? '진행 중인 업무' : group === 'trouble' ? '확인이 필요한 업무' : status || '업무함';
+  res.send(layout('업무함', `${notice(req)}<h1>${icon('inbox', 24)}${esc(title)}</h1><div class="tabs">${tabs}</div>
+    <div class="card table-card" data-live="list"><table><tr><th>번호</th><th>업무</th><th>상태</th><th style="width:220px">진행</th><th>마감</th><th>반려/재작업</th><th>지시 시각</th></tr>
+    ${rows || `<tr><td colspan="7"><div class="empty">${icon('inbox', 32)}해당하는 업무가 없습니다.</div></td></tr>`}</table></div>`,
+  { active: status === '승인대기' ? '/tasks?status=승인대기' : '/tasks' }));
 });
 
 router.post('/tasks', async (req, res) => {

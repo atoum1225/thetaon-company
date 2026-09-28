@@ -49,6 +49,16 @@
       el.innerHTML = `<span class="dots"></span> ${esc(work.label)}${work.taskId && el.dataset.all === '1' ? ` (업무 #${work.taskId})` : ''} · ${sec}초`;
     });
   }
+  // 직원 현황: 지금 일하는 직원 얼굴에 초록 점
+  function paintStaff() {
+    document.querySelectorAll('.avatar[data-staff]').forEach((a) => a.classList.toggle('busy', !!work && a.dataset.staff === work.who));
+    document.querySelectorAll('[data-staff-row]').forEach((li) => {
+      const on = !!work && li.dataset.staffRow === work.who;
+      li.classList.toggle('busy', on);
+      const s = li.querySelector('.state');
+      if (s) s.textContent = on ? `${work.label.replace(/^\S+\s/, '')}${work.taskId ? ` (업무 #${work.taskId})` : ''}` : '대기 중';
+    });
+  }
   socket.on('working', (w) => {
     if (w.done) { work = null; clearInterval(workTimer); workTimer = null; }
     else {
@@ -56,8 +66,32 @@
       if (!workTimer) workTimer = setInterval(paintWork, 1000);
     }
     paintWork();
+    paintStaff();
     if (w.done) scheduleRefresh();
   });
+
+  // 왼쪽 메뉴 숫자(결재 대기 등)
+  async function paintCounts() {
+    try {
+      const c = await (await fetch('/api/counts')).json();
+      document.querySelectorAll('.nav-count').forEach((el) => {
+        const n = c[el.dataset.count] || 0;
+        el.textContent = n;
+        el.hidden = !n;
+      });
+    } catch {}
+  }
+  paintCounts();
+  socket.on('task', () => { clearTimeout(paintCounts.t); paintCounts.t = setTimeout(paintCounts, 800); });
+
+  // 업무 지시 예시 문장 누르면 입력창에 채우기
+  document.addEventListener('click', (e) => {
+    const chip = e.target.closest('.chip[data-fill]');
+    if (!chip) return;
+    const box = document.getElementById('instruction');
+    if (box) { box.value = chip.dataset.fill; box.focus(); }
+  });
+  if (location.hash === '#new') document.getElementById('instruction')?.focus();
 
   // ───── 메신저 ─────
   function render(m, withTask) {
