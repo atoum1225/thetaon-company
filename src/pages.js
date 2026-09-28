@@ -173,30 +173,21 @@ router.get('/tasks/:id', async (req, res) => {
 function wikiHtml(t) {
   const id = t.id;
   if (t.wiki_path) {
-    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2><p class="ok">저장했습니다: ${esc(t.wiki_path)}</p>
+    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2><p class="ok">저장했습니다: C:\\ThetaRO\\${esc(t.wiki_path)}</p>
       <p class="muted">${fmt(t.wiki_saved_at)} · index.md와 log.md에도 한 줄씩 추가했습니다. 옵시디언에서 바로 보입니다.</p></div>`;
   }
-  const d = t.wiki_draft;
-  if (!d) {
-    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2>
-      <p class="muted">이 업무 결과를 C:\\ThetaRO 위키에 남길지 김비서가 위키 규칙(저장 필터·분류·파일 이름)에 맞춰 저장안을 먼저 만듭니다. 대표님이 확인하고 저장을 눌러야 실제로 저장됩니다.</p>
-      <form method="post" action="/tasks/${id}/wiki/draft"><button>위키 저장안 만들기</button></form></div>`;
-  }
-  const cat = wiki.CATEGORIES[d.category] || {};
-  return `<div class="card approve"><h2 style="margin-top:0">위키 저장안 확인</h2>
-    ${d.save ? '' : `<p class="bad">김비서 판단: 저장 필터를 통과하지 못합니다. ${esc(d.not_save_reason)}</p>`}
+  if (!t.final_report) return '';
+  const p = wiki.plan(t);
+  const where = `C:\\ThetaRO\\${p.rel}`;
+  return `<div class="card"><h2 style="margin-top:0">위키 저장</h2>
+    <p class="muted">최종 보고서를 그대로 위키에 저장합니다. AI를 다시 부르지 않고 바로 저장됩니다.</p>
     <table>
-      <tr><th>저장 위치</th><td>AI-Sessions/wiki/${esc(cat.dir || '')}/<b>${esc(d.name)}.md</b> (${esc(cat.name || '')}, ${d.status === 'draft' ? '초안' : '확정'})</td></tr>
-      <tr><th>index.md 한 줄 요약</th><td>${esc(d.summary)}</td></tr>
-      <tr><th>통과한 저장 필터</th><td>${esc((d.filter_reasons || []).join(' / ') || '-')}</td></tr>
-      <tr><th>연결 문서</th><td>${esc((d.links || []).join(', ') || '-')}</td></tr>
+      <tr><th>저장 위치</th><td>${esc(where)}</td></tr>
+      <tr><th>index.md 한 줄 요약</th><td>${p.status === 'draft' ? '(draft) ' : ''}${esc(p.summary)}</td></tr>
     </table>
-    <details open><summary>문서 본문 미리보기</summary>${doc(wiki.fileText(d, t))}</details>
-    <div class="row" style="margin-top:12px">
-      ${d.save ? `<form method="post" action="/tasks/${id}/wiki/save"><button class="green">위키에 저장</button></form>` : ''}
-      <form method="post" action="/tasks/${id}/wiki/draft"><button class="gray">저장안 다시 만들기</button></form>
-      <form method="post" action="/tasks/${id}/wiki/discard"><button class="gray">저장 안 함</button></form>
-    </div></div>`;
+    <form method="post" action="/tasks/${id}/wiki/save" style="margin-top:10px"
+      onsubmit="return confirm('최종 보고서를 위키에 저장할까요?\\n\\n' + ${JSON.stringify(where).replace(/"/g, '&quot;')})">
+      <button class="green">최종 보고서를 위키에 저장</button></form></div>`;
 }
 
 function planHtml(m) {
@@ -254,25 +245,12 @@ router.get('/tasks/:id/report', async (req, res) => {
 });
 
 // ───── 위키 저장 ─────
-router.post('/tasks/:id/wiki/draft', async (req, res) => {
-  const id = Number(req.params.id);
-  try {
-    await query('UPDATE tasks SET wiki_draft=NULL WHERE id=$1 AND wiki_path IS NULL', [id]);
-    await engine.requestWikiDraft(id);
-    back(res, `/tasks/${id}`, '김비서가 위키 저장안을 만들고 있습니다. 1~3분 뒤 이 화면에 나타납니다.');
-  } catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
-});
 router.post('/tasks/:id/wiki/save', async (req, res) => {
   const id = Number(req.params.id);
   try {
-    const r = await wiki.saveDraft(id);
-    back(res, `/tasks/${id}`, `위키에 저장했습니다: ${r.rel}${r.archived ? ` (달이 바뀌어 지난달 로그 ${r.archived}줄을 archive로 옮겼습니다)` : ''}`);
+    const r = await wiki.saveReport(id);
+    back(res, `/tasks/${id}`, `위키에 저장했습니다: C:\\ThetaRO\\${r.rel}${r.archived ? ` (달이 바뀌어 지난달 로그 ${r.archived}줄을 archive로 옮겼습니다)` : ''}`);
   } catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
-});
-router.post('/tasks/:id/wiki/discard', async (req, res) => {
-  const id = Number(req.params.id);
-  await query('UPDATE tasks SET wiki_draft=NULL WHERE id=$1 AND wiki_path IS NULL', [id]);
-  back(res, `/tasks/${id}`, '위키 저장안을 지웠습니다.');
 });
 
 // ───── 메신저 (화면 → 서버) ─────

@@ -16,8 +16,8 @@ async function employee(nameOrKey) {
 async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
   const emp = await employee(who);
   const def = EMPLOYEES.find((e) => e.key === emp.key);
-  // 대표님이 직접 누르는 일(답변·위키 저장안)은 업무당 호출 상한에서 뺀다.
-  if (taskId && !['reply_ceo', 'wiki_draft'].includes(purpose)) {
+  // 대표님 말씀에 답하는 일은 업무당 호출 상한에서 뺀다.
+  if (taskId && purpose !== 'reply_ceo') {
     const n = await query('SELECT count(*)::int AS n FROM ai_usage WHERE task_id=$1', [taskId]);
     if (n.rows[0].n >= MAX_CALLS_PER_TASK) {
       throw new AiError(`이 업무의 AI 호출이 ${MAX_CALLS_PER_TASK}회를 넘어 멈췄습니다. 사용량을 지키려는 안전장치입니다.`);

@@ -1,4 +1,4 @@
-﻿// 가짜 AI. AI_MOCK=1 일 때만 쓴다. 사용량을 쓰지 않고 업무 흐름 전체를 시험하기 위한 것.
+// 가짜 AI. AI_MOCK=1 일 때만 쓴다. 사용량을 쓰지 않고 업무 흐름 전체를 시험하기 위한 것.
 // 서영업의 첫 산출물에는 일부러 금지 수치(64%)를 넣어 재작업 경로를 시험한다.
 
 // MOCK_FAIL_ONCE=review 처럼 주면 그 단계 첫 호출만 "응답 없음"으로 실패시켜 자동 재시도를 시험한다.
@@ -60,19 +60,6 @@ async function respond({ emp, purpose, prompt }) {
       return j({
         report: '# 최종 보고\n시험 업무를 마쳤습니다.',
         staff_notes: [{ employee: '서영업', note: '64% 같은 금지 수치를 쓰지 않도록 주의.' }],
-      });
-    case 'wiki_draft':
-      return j({
-        save: true,
-        filter_reasons: ['3) 의사결정 근거와 결정권자 추적 필요'],
-        not_save_reason: '',
-        category: 'decision',
-        slug: 'mock-wiki-save-test',
-        title: '시험 위키 저장',
-        summary: '위키 저장 기능 시험 문서',
-        status: 'draft',
-        body: '## Summary\n시험입니다.\n\n## Context\n시험.\n\n## Details\n시험.\n\n## Links\n- [[theta-definition]]',
-        links: ['theta-definition', 'no-such-doc'],
       });
     default:
       return t('시험 응답');

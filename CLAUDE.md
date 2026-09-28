@@ -20,7 +20,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `src/rules.js` — 금지·조건부 수치 목록(정본: C:\ThetaRO 위키, CEO 확인 2026-09-27)과 검사기
 - `src/memory.js` — 과거 기록 검색(pg_trgm/ILIKE)과 위키 index.md 후보 찾기
 - `src/pages.js`, `src/views.js`, `public/` — 업무 사이트와 메신저 화면
-- `src/wiki.js` — 위키 저장: 김비서 저장안 → CEO 확인 → 새 wiki 문서 + index.md·log.md 한 줄 추가(월별 로그 보관 포함). 기존 문서·raw는 건드리지 않는다. 시험은 WIKI_DIR로 위키 사본을 가리켜서 한다
+- `src/wiki.js` — 위키 저장: 최종 보고서를 AI 없이 그대로 AI-Sessions/wiki/projects/thetaon-hq-task-N-report.md로 저장, index.md(Projects)·log.md 한 줄 추가(월별 로그 보관 포함). 기존 문서·raw는 건드리지 않는다. 시험은 WIKI_DIR로 위키 사본을 가리켜서 한다. 미리 보기: node scripts/wiki-preview.js N (scripts/wiki-stop-test.js는 폐기된 저장안 방식용이라 쓰지 않는다)
 - `src/report.js` — 최종 보고서 HTML(/tasks/:id/report, ?download=1은 파일 받기)
 - `src/backup.js` — pg_dump 백업(backups/, 최근 14개, git 제외)
 - `src/mock.js` — 가짜 AI(AI_MOCK=1)

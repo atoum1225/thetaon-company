@@ -5,7 +5,6 @@ const { ask } = require('./company');
 const bus = require('./bus');
 const rules = require('./rules');
 const memory = require('./memory');
-const wiki = require('./wiki');
 
 const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언'];
 // 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
@@ -447,7 +446,7 @@ async function handleInterrupts(t) {
   }
   const rr = await ask('김비서', {
     taskId: t.id, purpose: 'reply_ceo',
-    prompt: `${defText(t)}\n현재 상태: ${t.status}${t.wiki_path ? `\n위키 저장: 이미 저장함(${t.wiki_path})` : t.wiki_draft ? '\n위키 저장: 저장안이 대표님 확인을 기다림' : ''}\n\n[최근 대화]\n${await transcript(t.id, null, 8000)}\n\n[대표님이 방금 하신 말]\n${r.rows.map((x) => x.body).join('\n')}\n\n` +
+    prompt: `${defText(t)}\n현재 상태: ${t.status}${t.wiki_path ? `\n위키 저장: 이미 저장함(${t.wiki_path})` : ''}\n\n[최근 대화]\n${await transcript(t.id, null, 8000)}\n\n[대표님이 방금 하신 말]\n${r.rows.map((x) => x.body).join('\n')}\n\n` +
       `[할 일]\n대표님 말씀에 바로 답한다(2~5문장). 지시면 어떻게 반영할지, 질문이면 아는 만큼 답한다. 반영은 이후 발언과 작업에서 한다. 배정안 승인·반려는 화면의 버튼으로 해 주셔야 한다고 필요하면 안내한다.`,
   });
   await query('UPDATE messages SET handled=true WHERE id = ANY($1)', [ids]);
@@ -475,7 +474,6 @@ const queue = [];
 let busy = false;
 let current = null;
 let currentMode = null;
-const cancelledWiki = new Set(); // 만드는 도중 대표님이 멈추라고 한 위키 저장안
 
 function schedule(taskId, mode = 'run') {
   if (!queue.some((q) => q.taskId === taskId && q.mode === mode)) queue.push({ taskId, mode });
@@ -491,7 +489,6 @@ async function pump() {
     currentMode = job.mode;
     try {
       if (job.taskId === null) await replyGeneral();
-      else if (job.mode === 'wiki') await wikiDraft(job.taskId);
       else if (job.mode === 'reply') await replyOnly(job.taskId);
       else await runTask(job.taskId);
     } catch (err) {
@@ -545,38 +542,6 @@ async function replyOnly(id) {
     await handleInterrupts(t);
   } catch (err) {
     await post(t.id, '시스템', `김비서가 답하지 못했습니다: ${safeMessage(err)}`, '시스템');
-  }
-}
-
-// ───────── 위키 저장안 (완료된 업무) ─────────
-async function requestWikiDraft(id) {
-  const t = await getTask(id);
-  if (!t || t.status !== '완료') throw new Error('완료된 업무만 위키에 저장할 수 있습니다.');
-  if (t.wiki_path) throw new Error('이미 위키에 저장한 업무입니다.');
-  await post(id, '시스템', '김비서가 위키 저장안을 만듭니다. 위키 규칙을 읽고 관련 문서를 찾느라 1~3분 걸립니다.', '시스템');
-  schedule(id, 'wiki');
-}
-
-async function wikiDraft(id) {
-  const t = await getTask(id);
-  cancelledWiki.delete(id);
-  try {
-    const r = await ask('김비서', {
-      taskId: id, purpose: 'wiki_draft', schema: wiki.SCHEMA,
-      prompt: wiki.draftPrompt(t, await wiki.taskContext(t)),
-    });
-    if (cancelledWiki.delete(id)) {
-      await post(id, '시스템', '대표님 지시로 위키 저장안은 버렸습니다. 필요하면 "위키 저장안 만들기"를 다시 눌러 주세요.', '시스템');
-      return;
-    }
-    const d = wiki.normalizeDraft(r.json);
-    await query('UPDATE tasks SET wiki_draft=$2 WHERE id=$1', [id, d]);
-    await post(id, '김비서', d.save
-      ? `위키 저장안을 만들었습니다. ${wiki.CATEGORIES[d.category].name} 문서 "${d.name}"로 저장하려고 합니다. 업무 화면에서 내용을 보시고 "위키에 저장"을 눌러 주세요.`
-      : `이 업무는 위키 저장 필터를 통과하지 못한다고 봅니다. 이유: ${d.not_save_reason}`);
-    bus.emit('task', { id, status: t.status, title: t.title, step: t.step });
-  } catch (err) {
-    await post(id, '시스템', `위키 저장안을 만들지 못했습니다: ${safeMessage(err)}`, '시스템');
   }
 }
 
@@ -649,15 +614,6 @@ async function ceoSay(taskId, body) {
   // "멈춰" / "다시 진행"은 AI 답을 기다리지 않고 바로 처리한다.
   // (전에는 진행 중이던 AI 호출이 끝날 때까지 최대 2분 늦게 멈췄고, 채팅의 "다시 진행"은 대답만 하고 재개하지 않았다.)
   const text = body.trim();
-  // 완료된 업무에서 위키 저장안을 만드는 중에 "멈춰"면 그 작업을 취소한다.
-  const wikiBusy = (current === taskId && currentMode === 'wiki') || queue.some((q) => q.taskId === taskId && q.mode === 'wiki');
-  if (STOP_RE.test(text) && wikiBusy) {
-    await query('UPDATE messages SET handled=true WHERE id=$1', [r.rows[0].id]);
-    for (let i = queue.length - 1; i >= 0; i--) if (queue[i].taskId === taskId && queue[i].mode === 'wiki') queue.splice(i, 1);
-    if (current === taskId && currentMode === 'wiki') cancelledWiki.add(taskId);
-    await post(taskId, '시스템', '위키 저장안 만들기를 멈췄습니다. 지금 하던 호출이 끝나도 저장안은 버립니다.', '시스템');
-    return;
-  }
   if (STOP_RE.test(text) && PAUSABLE.includes(t.status)) {
     await query('UPDATE messages SET handled=true WHERE id=$1', [r.rows[0].id]);
     await pause(taskId, current === taskId
@@ -695,4 +651,4 @@ function state() {
   return { busy, current, queued: queue.length };
 }
 
-module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, requestWikiDraft, ACTIVE, PAUSABLE };
+module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, ACTIVE, PAUSABLE };

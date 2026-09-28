@@ -1,76 +1,20 @@
-// 업무 결과를 C:\ThetaRO 위키에 저장한다. 위키의 CLAUDE.md 규칙을 따른다.
-// 1) 김비서가 저장안을 만든다(저장 필터 판정, 분류, 파일 이름, 한 줄 요약, 본문)
-// 2) 대표님이 화면에서 확인하고 "위키에 저장"을 누르면 그때 파일을 쓴다.
+// 최종 보고서를 C:\ThetaRO 위키에 그대로 저장한다(AI를 다시 부르지 않음).
+// 위키 CLAUDE.md 규칙에 맞게 본부가 틀만 씌운다: frontmatter, Summary·Context·Details·Links,
+// 영어 kebab-case 파일 이름, index.md 한 줄 요약, log.md 한 줄(월별 보관 포함).
 // 새 문서만 만든다. 기존 wiki 문서와 raw는 건드리지 않고, index.md와 log.md는 한 줄씩 추가만 한다.
 const fs = require('fs');
 const path = require('path');
 const { query } = require('./db');
 const { WIKI_DIR } = require('./ai');
 
-const CATEGORIES = {
-  decision: { dir: 'decisions', dated: true, section: '## Decisions', name: '결정' },
-  project: { dir: 'projects', dated: false, section: '## Projects', name: '프로젝트' },
-  concept: { dir: 'concepts', dated: false, section: '## Concepts', name: '개념' },
-  error: { dir: 'errors', dated: true, section: '## Errors / Lessons', name: '실패·교훈' },
-};
-
-const SCHEMA = {
-  type: 'object',
-  properties: {
-    save: { type: 'boolean' },
-    filter_reasons: { type: 'array', items: { type: 'string' } },
-    not_save_reason: { type: 'string' },
-    category: { type: 'string', enum: Object.keys(CATEGORIES) },
-    slug: { type: 'string' },
-    title: { type: 'string' },
-    summary: { type: 'string' },
-    status: { type: 'string', enum: ['draft', 'active'] },
-    body: { type: 'string' },
-    links: { type: 'array', items: { type: 'string' } },
-  },
-  required: ['save', 'filter_reasons', 'not_save_reason', 'category', 'slug', 'title', 'summary', 'status', 'body', 'links'],
-};
+// 업무 결과 보고서는 위키 분류 중 "프로젝트별 진행 맥락과 산출물"에 둔다.
+const TARGET = { type: 'project', dir: 'projects', section: '## Projects' };
 
 const today = () => {
   const d = new Date();
   const p = (n) => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
 };
-
-function draftPrompt(t, extra) {
-  return `본부 업무 #${t.id}의 결과를 C:\\ThetaRO 위키에 저장할 안을 만든다. 파일은 네가 쓰지 않는다(읽기만). 대표님이 확인한 뒤 본부가 저장한다.
-먼저 C:\\ThetaRO\\CLAUDE.md를 읽고 Save Filter, Writing Style, Document Format, 파일 이름 규칙을 따른다. 관련 문서가 있는지 index.md에서 찾아본다(log.md 전체는 읽지 않는다).
-
-[업무]
-${extra}
-
-[할 일]
-- save: 아래 저장 필터 5가지 중 하나라도 통과하면 true. 통과한 항목을 filter_reasons에 적는다. 하나도 없으면 false와 not_save_reason.
-  1) 향후 실무에 반복 재사용될 데이터 2) 다른 에이전트·동료가 이어받으려면 읽어야 함 3) 의사결정 근거와 결정권자 추적 필요 4) 다시 하면 안 되는 실패·리스크 5) 팀 공통 규칙·가이드
-- category: decision(대표님이 승인·결정한 내용이 중심), project(진행 맥락과 산출물), concept(반복해서 쓸 개념·기준), error(실패와 교훈) 중 하나.
-- slug: 영어 소문자 kebab-case, 날짜 없이, 60자 이내(예: kt-catalog-v04-forbidden-number-check). 날짜는 본부가 붙인다.
-- title: 한국어 제목. summary: index.md에 올릴 100자 안팎 한 문장("무엇에 관한 문서 + 지금 가장 중요한 상태 하나").
-- status: 대표님 결정이 남아 있으면 draft, 아니면 active.
-- body: frontmatter와 제목(#) 없이 "## Summary", "## Context", "## Details", "## Links" 순서의 본문. decision이면 결정 내용·근거·결정권자·결정 날짜·재검토 조건을 반드시 넣는다.
-  아직 대표님이 정하지 않은 것은 결정으로 쓰지 말고 "확인 필요"로 적는다. 기존 위키 문서와 어긋나는 내용이 있으면 > ⚠️ CONFLICT: 인용 블록으로 표시한다.
-  말투는 위키 Writing Style대로(이모지·줄마다 굵은 글씨·화살표·과한 강조 없이, 자연스러운 한국어). 금지 수치는 쓰지 않는다.
-- links: 본문 Links 절에 건 기존 위키 문서 이름(확장자 없이, index.md에 실제로 있는 것만).`;
-}
-
-async function taskContext(t) {
-  const m = (await query('SELECT * FROM meetings WHERE task_id=$1 ORDER BY attempt DESC LIMIT 1', [t.id])).rows[0];
-  const dec = (await query('SELECT content, rationale, decided_by, created_at FROM decisions WHERE task_id=$1 ORDER BY id', [t.id])).rows;
-  const ceo = (await query(`SELECT body FROM messages WHERE task_id=$1 AND kind='CEO' ORDER BY id`, [t.id])).rows;
-  return [
-    `제목: ${t.title}`,
-    `CEO 지시: ${t.instruction}`,
-    `완료: ${t.completed_at ? new Date(t.completed_at).toISOString().slice(0, 10) : '-'}`,
-    `확정 결정(대표님 승인):\n${dec.map((d) => `- ${d.content} (근거: ${d.rationale || '-'}, ${d.decided_by})`).join('\n') || '(없음)'}`,
-    `회의록:\n${m?.minutes || '(없음)'}`,
-    `대표님 말씀:\n${ceo.map((x) => `- ${x.body}`).join('\n') || '(없음)'}`,
-    `최종 보고서:\n${t.final_report || '(없음)'}`,
-  ].join('\n\n');
-}
 
 // 위키에 실제로 있는 문서 이름 목록
 function existingDocs() {
@@ -88,37 +32,71 @@ function existingDocs() {
   return names;
 }
 
-// 저장안을 정리한다(파일 이름 확정, 없는 링크 제거).
-function normalizeDraft(d) {
-  const cat = CATEGORIES[d.category] ? d.category : 'project';
-  let slug = String(d.slug || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
-  slug = slug.replace(/^\d{4}-\d{2}-\d{2}-/, '');
-  if (!slug) slug = 'thetaon-task-result';
-  const names = existingDocs();
-  const base = (CATEGORIES[cat].dated ? `${today()}-` : '') + slug;
-  let name = base;
-  for (let i = 2; names.has(name); i++) name = `${base}-${i}`;
-  const links = [...new Set((d.links || []).map((x) => String(x).replace(/^\[\[|\]\]$/g, '').replace(/\.md$/, '').trim()))].filter((x) => names.has(x));
-  const summary = String(d.summary || '').replace(/\s+/g, ' ').trim();
-  return { ...d, category: cat, slug, name, links, summary };
+// 보고서의 "요약" 절에서 첫 문장을 뽑아 index.md 한 줄 요약(100자 안팎)으로 쓴다.
+function summaryOf(report, title) {
+  const text = String(report || '');
+  const sec = text.match(/^#{1,3}\s*요약[^\n]*\n+([\s\S]*?)(?=\n#{1,3}\s|$)/m);
+  const src = (sec ? sec[1] : text.replace(/^#.*$/gm, ''))
+    .replace(/\*\*|__|[*`>]/g, '').replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1').replace(/\s+/g, ' ').trim();
+  let s = (src.match(/^.*?(?:다|요|음)\.(?=\s|$)/) || [src])[0];
+  if (s.length > 110) s = s.slice(0, 105).replace(/\s\S*$/, '') + '…';
+  return s || title;
 }
 
-function fileText(d, t) {
-  let body = String(d.body || '').replace(/^---[\s\S]*?---\s*/, '').replace(/^#\s+.*\n+/, '').trim();
-  const missing = d.links.filter((l) => !body.includes(`[[${l}]]`));
-  if (!/^## Links/m.test(body)) body += '\n\n## Links\n';
-  if (missing.length) body += `\n${missing.map((l) => `- [[${l}]]`).join('\n')}`;
+function plan(t) {
+  const names = existingDocs();
+  const base = `thetaon-hq-task-${t.id}-report`;
+  let name = base;
+  for (let i = 2; names.has(name); i++) name = `${base}-${i}`;
+  // 보고서에 대표님 확인이 남아 있으면 위키 규칙대로 draft로 둔다.
+  const pending = /대표님이?\s*확인하실|확인\s*필요|CEO\s*확인|승인\s*(?:요청|대기)|판단\s*요청/.test(t.final_report || '');
+  const links = [...new Set([...(t.final_report || '').matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim()))].filter((x) => names.has(x));
+  return {
+    name,
+    rel: path.join('AI-Sessions', 'wiki', TARGET.dir, `${name}.md`),
+    status: pending ? 'draft' : 'active',
+    summary: `(본부 #${t.id}) ${summaryOf(t.final_report, t.title)}`,
+    links,
+  };
+}
+
+function fileText(t, p) {
+  const date = (d) => (d ? new Date(d).toISOString().slice(0, 10) : '-');
+  // 보고서 안의 제목 단계를 한 단계씩 내려서 Details 아래에 넣는다(# → ###, ## → ###).
+  const body = String(t.final_report || '').trim()
+    .replace(/^#\s+.*\n+/, '')
+    .replace(/^#{1,3}\s*요약[^\n]*\n+[\s\S]*?(?=\n#{1,3}\s|$)/m, '') // 요약은 Summary 절에 이미 있으므로 뺀다
+    .trim()
+    .replace(/^(#{1,4})\s/gm, (m, h) => `${'#'.repeat(Math.min(6, h.length + 2 - (h.length > 1 ? 1 : 0)))} `);
+  const sec = String(t.final_report || '').match(/^#{1,3}\s*요약[^\n]*\n+([\s\S]*?)(?=\n#{1,3}\s|$)/m);
+  const summary = (sec ? sec[1] : p.summary).trim();
   return `---
-type: ${d.category}
+type: ${TARGET.type}
 date: ${today()}
-status: ${d.status === 'draft' ? 'draft' : 'active'}
-source: 세타온 본부(C:\\atoum) 업무 #${t.id} 「${t.title}」 최종 보고서
+status: ${p.status}
+source: 세타온 본부(C:\\atoum) 업무 #${t.id} 최종 보고서
 owner: CEO
 ---
 
-# ${d.title}
+# ${t.title} (본부 업무 #${t.id} 결과 보고)
 
-${body.trim()}
+## Summary
+
+${summary}
+
+## Context
+
+대표님 지시: ${t.instruction}
+
+세타온 본부(AI 가상 회사)의 김비서가 회의·분업·검수를 거쳐 작성한 최종 보고서를 대표님 확인 후 그대로 옮겼다. 지시 ${date(t.created_at)}, 완료 ${date(t.completed_at)}, 반려 ${t.reject_count}회, 재작업 ${t.rework_count}회. 회의록·산출물 원문은 본부 업무 #${t.id} 화면에 있다.
+
+## Details
+
+${body}
+
+## Links
+
+${p.links.length ? p.links.map((l) => `- [[${l}]]`).join('\n') : '- (보고서에 연결된 위키 문서 없음)'}
 `;
 }
 
@@ -156,44 +134,39 @@ function archiveOldLogLines(logText, nl) {
   return { text: rest.join(nl), moved: old.length };
 }
 
-async function saveDraft(taskId) {
+async function saveReport(taskId) {
   const t = (await query('SELECT * FROM tasks WHERE id=$1', [taskId])).rows[0];
-  if (!t || !t.wiki_draft) throw new Error('저장할 위키 저장안이 없습니다.');
+  if (!t || t.status !== '완료' || !t.final_report) throw new Error('최종 보고서가 있는 완료된 업무만 저장할 수 있습니다.');
   if (t.wiki_path) throw new Error(`이미 위키에 저장했습니다: ${t.wiki_path}`);
-  const d = normalizeDraft(t.wiki_draft); // 저장 직전에 파일 이름 충돌을 다시 확인
-  if (!d.save) throw new Error('김비서가 저장 필터를 통과하지 못한다고 판단한 안입니다. 저장하지 않습니다.');
-  const cat = CATEGORIES[d.category];
+  const p = plan(t);
 
-  const docPath = path.join(WIKI_DIR, 'AI-Sessions', 'wiki', cat.dir, `${d.name}.md`);
+  const docPath = path.join(WIKI_DIR, p.rel);
   const indexPath = path.join(WIKI_DIR, 'index.md');
   const logPath = path.join(WIKI_DIR, 'log.md');
-  if (fs.existsSync(docPath)) throw new Error('같은 이름의 문서가 이미 있습니다. 저장안을 다시 만들어 주세요.');
 
   const indexText = fs.readFileSync(indexPath, 'utf8');
   const nl = indexText.includes('\r\n') ? '\r\n' : '\n';
   const lines = indexText.split(/\r?\n/);
-  const h = lines.findIndex((l) => l.trim() === cat.section);
-  if (h < 0) throw new Error(`index.md에서 "${cat.section}" 절을 찾지 못했습니다.`);
+  const h = lines.findIndex((l) => l.trim() === TARGET.section);
+  if (h < 0) throw new Error(`index.md에서 "${TARGET.section}" 절을 찾지 못했습니다.`);
   let at = h + 1;
   while (at < lines.length && lines[at].trim() === '') at++;
-  const entry = `- [[${d.name}]] — ${d.status === 'draft' ? '(draft) ' : ''}${d.summary}`;
-  lines.splice(at, 0, entry);
+  lines.splice(at, 0, `- [[${p.name}]] — ${p.status === 'draft' ? '(draft) ' : ''}${p.summary}`);
 
   let logText = fs.readFileSync(logPath, 'utf8');
   const lnl = logText.includes('\r\n') ? '\r\n' : '\n';
   const archived = archiveOldLogLines(logText, lnl);
   logText = archived.text;
-  const did = `본부 업무 #${t.id} 결과를 대표님 승인으로 위키에 저장했다(${d.title}) → [[${d.name}]]`.slice(0, 200);
-  const logLine = `${today()} | save | ${did} | AI-Sessions/wiki/${cat.dir}`;
+  const did = `본부 업무 #${t.id}(${t.title}) 최종 보고서를 대표님 확인 후 위키에 옮겼다 → [[${p.name}]]`.slice(0, 200);
+  const logLine = `${today()} | save | ${did} | AI-Sessions/wiki/${TARGET.dir}`;
 
-  fs.writeFileSync(docPath, fileText(d, t).replace(/\n/g, nl), { encoding: 'utf8', flag: 'wx' });
+  fs.writeFileSync(docPath, fileText(t, p).replace(/\n/g, nl), { encoding: 'utf8', flag: 'wx' }); // 같은 이름이 있으면 실패(덮어쓰지 않음)
   fs.writeFileSync(indexPath, lines.join(nl), 'utf8');
   fs.writeFileSync(logPath, logText.replace(/\s*$/, lnl) + logLine + lnl, 'utf8');
 
-  const rel = path.relative(WIKI_DIR, docPath);
-  await query('UPDATE tasks SET wiki_path=$2, wiki_saved_at=now(), wiki_draft=$3 WHERE id=$1', [taskId, rel, d]);
-  await query(`INSERT INTO task_events (task_id, kind, actor, detail) VALUES ($1,'위키 저장','CEO',$2)`, [taskId, rel]);
-  return { rel, archived: archived.moved };
+  await query('UPDATE tasks SET wiki_path=$2, wiki_saved_at=now() WHERE id=$1', [taskId, p.rel]);
+  await query(`INSERT INTO task_events (task_id, kind, actor, detail) VALUES ($1,'위키 저장','CEO',$2)`, [taskId, p.rel]);
+  return { rel: p.rel, archived: archived.moved };
 }
 
-module.exports = { SCHEMA, CATEGORIES, draftPrompt, taskContext, normalizeDraft, fileText, saveDraft };
+module.exports = { saveReport, plan, fileText, TARGET };

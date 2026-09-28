@@ -8,7 +8,7 @@ const PURPOSE_NAMES = {
   define: '과제를 정리하는 중', speak: '회의에서 발언을 준비하는 중', advise_meeting: '회의 조언을 준비하는 중',
   chair: '회의 진행을 판단하는 중', minutes: '회의록과 배정안을 쓰는 중', work: '산출물을 쓰는 중',
   review: '검수하는 중', advise: '전략 조언을 쓰는 중', adopt: '조언 반영 여부를 판단하는 중',
-  final: '최종 보고서를 쓰는 중', reply_ceo: '대표님 말씀에 답하는 중', wiki_draft: '위키 저장안을 만드는 중',
+  final: '최종 보고서를 쓰는 중', reply_ceo: '대표님 말씀에 답하는 중',
 };
 
 // 지금 진행 중인 AI 작업(한 번에 하나). 새로 연결된 화면에도 알려 주려고 기억해 둔다.
