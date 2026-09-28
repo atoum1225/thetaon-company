@@ -9,6 +9,16 @@ const { query, pool } = require('../src/db');
   for (const x of m.rows) console.log(`#${x.task_id ?? '-'} [${x.kind}] ${x.speaker}: ${x.b}`);
   const u = await query(`SELECT purpose, count(*)::int n, count(*) FILTER (WHERE NOT ok)::int fail FROM ai_usage ${id ? 'WHERE task_id=$1' : ''} GROUP BY purpose`, id ? [id] : []);
   console.table(u.rows);
+  if (process.argv.includes('--timeline') && id) {
+    const rows = await query(
+      `SELECT created_at, '메시지' AS src, kind || ' ' || speaker || CASE WHEN handled THEN '' ELSE ' (미처리)' END AS who, left(replace(body, E'\\n', ' '), 90) AS what FROM messages WHERE task_id=$1
+       UNION ALL SELECT created_at, '기록', kind || ' ' || actor, COALESCE(detail, '') FROM task_events WHERE task_id=$1
+       UNION ALL SELECT created_at, 'AI', purpose || CASE WHEN ok THEN '' ELSE ' 실패' END, round(duration_ms / 1000.0)::text || '초' FROM ai_usage WHERE task_id=$1
+       ORDER BY created_at`, [id]);
+    for (const r of rows.rows) console.log(new Date(r.created_at).toLocaleTimeString('ko-KR', { hour12: false }), r.src.padEnd(3), r.who, '|', r.what);
+    const s = await query('SELECT status, paused_status, step FROM tasks WHERE id=$1', [id]);
+    console.log('지금 상태:', s.rows[0]);
+  }
   if (process.argv.includes('--report')) {
     const done = await query(`SELECT id, title, final_report FROM tasks WHERE final_report IS NOT NULL ${id ? 'AND id=$1' : ''} ORDER BY id`, id ? [id] : []);
     for (const t of done.rows) {

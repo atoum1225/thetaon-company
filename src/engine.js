@@ -9,6 +9,9 @@ const memory = require('./memory');
 const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언'];
 // 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
 const PAUSABLE = [...ACTIVE, '승인대기', '한도대기'];
+const RESUMABLE = ['일시정지', '한도대기', '실패'];
+// 짧은 재개 지시만 알아듣는다("다시 진행", "재개", "계속 진행해"). 긴 문장 속 "계속"은 일반 지시로 본다.
+const RESUME_RE = /^\s*(?:다시\s*진행|재개|계속\s*진행)[\s\S]{0,10}$/;
 const STAFF = ['황기획', '송개발', '서영업'];
 const MAX_ROUNDS = 3;
 const MAX_REWORK = 2;
@@ -342,7 +345,7 @@ const STEPS = {
       let note;
       if (forbidden.length) {
         result = '미달';
-        note = `금지 수치·표현이 들어 있습니다: ${forbidden.map((h) => `"${h.match}"(${h.key})`).join(', ')}. 빼거나 허용된 표현으로 바꿔 주세요.`;
+        note = `금지 수치·표현이 들어 있습니다: ${forbidden.map((h) => `"${h.match}"(${h.key})`).join(', ')}. 빼거나 허용된 표현으로 바꿔 주세요. 고쳐야 할 원문이나 수정 이력이라서 꼭 인용해야 하면 ~~취소선~~으로 감싸면 "원문 인용"으로 인정됩니다(예: ~~64%~~).`;
       } else {
         const r = await ask('김비서', {
           taskId: t.id, purpose: 'review', schema: S.review,
@@ -571,20 +574,24 @@ async function reject(id, reason) {
   schedule(id);
 }
 
-async function pause(id) {
+async function pause(id, message = null) {
   const t = await getTask(id);
   if (!t || !PAUSABLE.includes(t.status)) throw new Error('지금은 멈출 수 있는 상태가 아닙니다.');
-  await setTask(id, { status: '일시정지', paused_status: t.status });
+  // 한도대기 중에 멈추면, 다시 진행할 때 한도대기가 아니라 원래 단계로 돌아가게 한다.
+  const back = t.status === '한도대기' ? (t.paused_status || '접수') : t.status;
+  await setTask(id, { status: '일시정지', paused_status: back });
   await event(id, '일시정지', 'CEO');
-  await post(id, '시스템', '일시정지했습니다. 지금 진행 중인 발언 하나가 끝나면 멈춥니다.', '시스템');
+  await post(id, '시스템', message || (current === id
+    ? '일시정지했습니다. 지금 하던 작업 하나는 끝나는 대로 저장만 하고 멈춥니다.'
+    : '일시정지했습니다.'), '시스템');
 }
 
-async function resume(id) {
+async function resume(id, by = 'CEO') {
   const t = await getTask(id);
-  if (!t || !['일시정지', '한도대기', '실패'].includes(t.status)) throw new Error('다시 진행할 수 있는 상태가 아닙니다.');
+  if (!t || !RESUMABLE.includes(t.status)) throw new Error('다시 진행할 수 있는 상태가 아닙니다.');
   await setTask(id, { status: t.paused_status || '접수', paused_status: null, error: null }, true);
-  await event(id, '다시 진행', 'CEO');
-  await post(id, '시스템', '다시 진행합니다.', '시스템');
+  await event(id, '다시 진행', by);
+  await post(id, '시스템', by === 'CEO' ? '다시 진행합니다.' : '사용량 한도 대기 후 자동으로 다시 시도합니다.', '시스템');
   schedule(id);
 }
 
@@ -598,9 +605,25 @@ async function ceoSay(taskId, body) {
     [taskId || null, meetingId, body.trim()]
   );
   bus.emit('message', r.rows[0]);
-  if (!taskId) schedule(null, 'reply');
-  else if (current !== taskId) schedule(taskId, ACTIVE.includes(t.status) ? 'run' : 'reply');
+  if (!taskId) return schedule(null, 'reply');
+
+  // "멈춰" / "다시 진행"은 AI 답을 기다리지 않고 바로 처리한다.
+  // (전에는 진행 중이던 AI 호출이 끝날 때까지 최대 2분 늦게 멈췄고, 채팅의 "다시 진행"은 대답만 하고 재개하지 않았다.)
+  const text = body.trim();
+  if (STOP_RE.test(text) && PAUSABLE.includes(t.status)) {
+    await query('UPDATE messages SET handled=true WHERE id=$1', [r.rows[0].id]);
+    await pause(taskId, current === taskId
+      ? '일시정지했습니다. 지금 하던 작업 하나는 끝나는 대로 저장만 하고 멈춥니다. "다시 진행"이라고 보내거나 버튼을 누르면 이어서 합니다.'
+      : '일시정지했습니다. "다시 진행"이라고 보내거나 버튼을 누르면 이어서 합니다.');
+    return;
+  }
+  if (RESUME_RE.test(text) && RESUMABLE.includes(t.status)) {
+    await query('UPDATE messages SET handled=true WHERE id=$1', [r.rows[0].id]);
+    await resume(taskId);
+    return;
+  }
   // 지금 이 업무가 진행 중이면 다음 발언 차례 전에 김비서가 먼저 받는다.
+  if (current !== taskId) schedule(taskId, ACTIVE.includes(t.status) ? 'run' : 'reply');
 }
 
 // 서버가 켜질 때: 하던 업무를 이어서, 한도대기는 15분마다 다시 시도.
@@ -612,7 +635,7 @@ async function start() {
   setInterval(async () => {
     try {
       const w = await query(`SELECT id FROM tasks WHERE status='한도대기'`);
-      for (const x of w.rows) await resume(x.id);
+      for (const x of w.rows) await resume(x.id, '본부 시스템');
     } catch (err) {
       console.error('[한도대기 재시도]', safeMessage(err));
     }

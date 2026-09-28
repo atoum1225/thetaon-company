@@ -50,11 +50,12 @@ function run(bin, args, input, cwd) {
   });
 }
 
-const LIMIT_RE = /usage limit|rate limit|limit reached|quota|resource_exhausted|429|too many requests|사용량 한도/i;
+// 예: "You've hit your session limit · resets 12:40am (Asia/Seoul)" (2026-09-27 실제 문구)
+const LIMIT_RE = /usage limit|rate limit|session limit|weekly limit|hit your .{0,20}limit|limit reached|quota|resource_exhausted|429|too many requests|사용량 한도/i;
 
 function limitError(text) {
-  const m = String(text).match(/resets? (?:at )?([^\n.]+)/i);
-  return new AiError(`구독 사용량 한도에 걸렸습니다. ${m ? '재개 예정: ' + m[1] : ''}`.trim(), { limit: true });
+  const m = String(text).match(/resets? (?:at )?([^\n·]+?)(?:\s*[·"]|$)/im);
+  return new AiError(`구독 사용량 한도에 걸렸습니다.${m ? ` 한도가 풀리는 시각: ${m[1].trim()}` : ''}`, { limit: true });
 }
 
 // JSON 답을 기대할 때, 글 속에 섞인 JSON 덩어리를 꺼낸다.
