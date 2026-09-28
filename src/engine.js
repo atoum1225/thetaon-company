@@ -416,7 +416,8 @@ const STEPS = {
       prompt: `${defText(t)}\n\n${planText(m.assignment_plan)}\n\n[대표님 말씀]\n${await ceoTalk(t.id)}\n\n[반려 ${t.reject_count}회, 재작업 ${t.rework_count}회]\n\n` +
         `[산출물]\n${docs}\n\n[쫑전략 조언(참고 의견)]\n${a?.content || '(없음)'}\n반영 여부: ${a?.adopted || '-'} / 이유: ${a?.reason || '-'}\n\n` +
         `${await rules.rulesText()}\n\n[할 일]\nCEO에게 올릴 최종 보고서를 마크다운으로 쓴다. 순서: 요약(3~5문장), 결정사항, 산출물별 결과, 검수 결과, 전략 조언과 반영 여부·이유, 남은 과제와 대표님이 확인하실 것.\n` +
-        `산출물 본문을 그대로 다 옮기지 말고 요점만. 금지 수치는 쓰지 않는다.\nstaff_notes에는 다음 업무에 이어 쓸 직원별 메모를 적는다(참여한 직원만, 한두 문장).`,
+        `산출물 본문을 그대로 다 옮기지 말고 요점만. 금지 수치는 쓰지 않는다.\n` +
+        `이 보고서로 이 업무는 끝난다. 검수를 통과하지 못한 산출물은 "미완료"로 적고, 마저 하려면 대표님의 후속 업무 지시가 필요하다고 쓴다. "재작업 지시함", "재검수 예정"처럼 이 업무 안에서 더 진행될 것처럼 쓰지 않는다.\nstaff_notes에는 다음 업무에 이어 쓸 직원별 메모를 적는다(참여한 직원만, 한두 문장).`,
     });
     let report = r.json.report;
     const hits = (await rules.scan(report)).filter((h) => h.level === 'forbidden');
