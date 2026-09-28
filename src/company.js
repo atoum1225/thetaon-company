@@ -22,6 +22,18 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
       throw new AiError(`이 업무의 AI 호출이 ${MAX_CALLS_PER_TASK}회를 넘어 멈췄습니다. 사용량을 지키려는 안전장치입니다.`);
     }
   }
+  // 응답이 멈추거나 형식이 깨지는 일시적 문제는 한 번만 자동으로 다시 시도한다.
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await askOnce(emp, def, { taskId, purpose, prompt, schema });
+    } catch (err) {
+      if (!err.transient || attempt >= 2) throw err;
+      console.error(`[다시 시도] ${emp.name} ${purpose}: ${safeMessage(err)}`);
+    }
+  }
+}
+
+async function askOnce(emp, def, { taskId, purpose, prompt, schema }) {
   const started = Date.now();
   bus.startWork({ taskId, who: emp.name, purpose, startedAt: started });
   try {
@@ -34,7 +46,7 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
         ? await callGemini({ system, prompt, model: emp.model, schema })
         : await callClaude({ system, prompt, model: emp.model, schema });
     }
-    if (schema && !res.json) throw new AiError(`${emp.name}의 답을 정해진 형식으로 읽지 못했습니다.`);
+    if (schema && !res.json) throw new AiError(`${emp.name}의 답을 정해진 형식으로 읽지 못했습니다.`, { transient: true });
     await query(
       `INSERT INTO ai_usage (task_id, employee_id, provider, model, purpose, ok, duration_ms, input_tokens, output_tokens)
        VALUES ($1,$2,$3,$4,$5,true,$6,$7,$8)`,

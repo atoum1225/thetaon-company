@@ -1,8 +1,16 @@
 ﻿// 가짜 AI. AI_MOCK=1 일 때만 쓴다. 사용량을 쓰지 않고 업무 흐름 전체를 시험하기 위한 것.
 // 서영업의 첫 산출물에는 일부러 금지 수치(64%)를 넣어 재작업 경로를 시험한다.
 
+// MOCK_FAIL_ONCE=review 처럼 주면 그 단계 첫 호출만 "응답 없음"으로 실패시켜 자동 재시도를 시험한다.
+const failedOnce = new Set();
+
 async function respond({ emp, purpose, prompt }) {
   await new Promise((r) => setTimeout(r, Number(process.env.MOCK_DELAY || 30)));
+  if (process.env.MOCK_FAIL_ONCE === purpose && !failedOnce.has(purpose)) {
+    failedOnce.add(purpose);
+    const { AiError } = require('./ai');
+    throw new AiError('가짜 AI: 응답 없음(시험)', { transient: true });
+  }
   const usage = { input: 0, output: 0 };
   const j = (json) => ({ text: JSON.stringify(json), json, usage });
   const t = (text) => ({ text, json: null, usage });

@@ -11,12 +11,14 @@ const CLAUDE_BIN = process.env.CLAUDE_BIN || path.join(os.homedir(), '.local', '
 const AGY_BIN = process.env.AGY_BIN || path.join(process.env.LOCALAPPDATA || '', 'agy', 'bin', 'agy.exe');
 // AI가 일하는 빈 폴더. C:\atoum 밖에 둬서 .env나 본부 코드가 AI 눈에 들어가지 않게 한다.
 const WORK_DIR = path.join(os.tmpdir(), 'thetaon-work');
-const TIMEOUT_MS = 10 * 60 * 1000;
+// 검수·산출물 작성이 길면 2~3분 걸린다. 6분을 넘으면 걸린 것으로 보고 끊는다(2026-09-28 한 호출이 응답 없이 멈춘 일).
+const TIMEOUT_MS = Number(process.env.AI_TIMEOUT_MS || 6 * 60 * 1000);
 
 class AiError extends Error {
-  constructor(message, { limit = false, retryAt = null } = {}) {
+  constructor(message, { limit = false, retryAt = null, transient = false } = {}) {
     super(message);
-    this.limit = limit;     // 구독 사용량 한도에 걸렸는지
+    this.limit = limit;         // 구독 사용량 한도에 걸렸는지
+    this.transient = transient; // 한 번 더 시도해 볼 만한 일시적 문제(응답 없음 등)
     this.retryAt = retryAt; // 알 수 있으면 다시 시도할 시각
   }
 }
@@ -34,7 +36,7 @@ function run(bin, args, input, cwd) {
     let err = '';
     const timer = setTimeout(() => {
       child.kill();
-      reject(new AiError('AI 응답 시간이 10분을 넘어 중단했습니다.'));
+      reject(new AiError(`AI 응답이 ${Math.round(TIMEOUT_MS / 60000)}분 넘게 없어 중단했습니다.`, { transient: true }));
     }, TIMEOUT_MS);
     child.stdout.on('data', (d) => (out += d));
     child.stderr.on('data', (d) => (err += d));
@@ -89,7 +91,7 @@ async function callClaude({ system, prompt, model = 'sonnet', schema, readWiki =
   try { data = JSON.parse(out); } catch {
     const text = (err || out).trim();
     if (LIMIT_RE.test(text)) throw limitError(text);
-    throw new AiError(`Claude 응답을 읽지 못했습니다(종료 코드 ${code}): ${text.slice(0, 300)}`);
+    throw new AiError(`Claude 응답을 읽지 못했습니다(종료 코드 ${code}): ${text.slice(0, 300)}`, { transient: true });
   }
   if (data.is_error) {
     const text = String(data.result || data.subtype || '');
@@ -126,7 +128,7 @@ async function callGemini({ system, prompt, model = 'gemini-3.1-pro-high', schem
   } catch {
     const text = (err || out).trim();
     if (LIMIT_RE.test(text)) throw limitError(text);
-    throw new AiError(`Gemini 응답을 읽지 못했습니다(종료 코드 ${code}): ${text.slice(0, 300)}`);
+    throw new AiError(`Gemini 응답을 읽지 못했습니다(종료 코드 ${code}): ${text.slice(0, 300)}`, { transient: true });
   }
   if (data.status && data.status !== 'SUCCESS') {
     const text = JSON.stringify(data).slice(0, 300);
