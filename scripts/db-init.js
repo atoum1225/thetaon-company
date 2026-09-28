@@ -146,6 +146,9 @@ CREATE TABLE IF NOT EXISTS system_log (
 
 ALTER TABLE meetings     ADD COLUMN IF NOT EXISTS turn INT NOT NULL DEFAULT 0;
 ALTER TABLE deliverables ADD COLUMN IF NOT EXISTS assignment_idx INT NOT NULL DEFAULT 0;
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_draft JSONB;
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_path TEXT;
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_saved_at TIMESTAMPTZ;
 
 CREATE INDEX IF NOT EXISTS idx_tasks_trgm     ON tasks        USING gin ((title || ' ' || instruction) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_decisions_trgm  ON decisions    USING gin (content gin_trgm_ops);

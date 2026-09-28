@@ -62,3 +62,5 @@ a.tab.on { background: var(--accent); color: #fff; }
 .chat.all .working { margin: 0 0 8px; }
 .dots::after { content: '●'; animation: blink 1s infinite; margin-right: 4px; }
 @keyframes blink { 50% { opacity: .2; } }
+
+.btn.gray { background: #6b7280; }

@@ -5,6 +5,7 @@ const { ask } = require('./company');
 const bus = require('./bus');
 const rules = require('./rules');
 const memory = require('./memory');
+const wiki = require('./wiki');
 
 const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언'];
 // 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
@@ -487,6 +488,7 @@ async function pump() {
     current = job.taskId;
     try {
       if (job.taskId === null) await replyGeneral();
+      else if (job.mode === 'wiki') await wikiDraft(job.taskId);
       else if (job.mode === 'reply') await replyOnly(job.taskId);
       else await runTask(job.taskId);
     } catch (err) {
@@ -539,6 +541,33 @@ async function replyOnly(id) {
     await handleInterrupts(t);
   } catch (err) {
     await post(t.id, '시스템', `김비서가 답하지 못했습니다: ${safeMessage(err)}`, '시스템');
+  }
+}
+
+// ───────── 위키 저장안 (완료된 업무) ─────────
+async function requestWikiDraft(id) {
+  const t = await getTask(id);
+  if (!t || t.status !== '완료') throw new Error('완료된 업무만 위키에 저장할 수 있습니다.');
+  if (t.wiki_path) throw new Error('이미 위키에 저장한 업무입니다.');
+  await post(id, '시스템', '김비서가 위키 저장안을 만듭니다. 위키 규칙을 읽고 관련 문서를 찾느라 1~3분 걸립니다.', '시스템');
+  schedule(id, 'wiki');
+}
+
+async function wikiDraft(id) {
+  const t = await getTask(id);
+  try {
+    const r = await ask('김비서', {
+      taskId: id, purpose: 'wiki_draft', schema: wiki.SCHEMA,
+      prompt: wiki.draftPrompt(t, await wiki.taskContext(t)),
+    });
+    const d = wiki.normalizeDraft(r.json);
+    await query('UPDATE tasks SET wiki_draft=$2 WHERE id=$1', [id, d]);
+    await post(id, '김비서', d.save
+      ? `위키 저장안을 만들었습니다. ${wiki.CATEGORIES[d.category].name} 문서 "${d.name}"로 저장하려고 합니다. 업무 화면에서 내용을 보시고 "위키에 저장"을 눌러 주세요.`
+      : `이 업무는 위키 저장 필터를 통과하지 못한다고 봅니다. 이유: ${d.not_save_reason}`);
+    bus.emit('task', { id, status: t.status, title: t.title, step: t.step });
+  } catch (err) {
+    await post(id, '시스템', `위키 저장안을 만들지 못했습니다: ${safeMessage(err)}`, '시스템');
   }
 }
 
@@ -647,4 +676,4 @@ function state() {
   return { busy, current, queued: queue.length };
 }
 
-module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, ACTIVE, PAUSABLE };
+module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, requestWikiDraft, ACTIVE, PAUSABLE };

@@ -5,6 +5,8 @@ const { layout, esc, badge } = require('./views');
 const engine = require('./engine');
 const memory = require('./memory');
 const rules = require('./rules');
+const wiki = require('./wiki');
+const report = require('./report');
 
 const router = express.Router();
 const STEP_NAMES = ['', '① 접수', '② 과제 정의', '③ 회의 소집', '④ 토론', '⑤ 회의록·배정안', '⑥ CEO 승인 대기', '⑦ 담당자 수행', '⑧ 김비서 검수', '⑨ 전략 조언', '⑩ 최종 보고', '완료'];
@@ -153,7 +155,10 @@ router.get('/tasks/:id', async (req, res) => {
           ${d.references?.length ? `<p><b>참고한 과거 기록:</b> ${esc(d.references.join(', '))}</p>` : ''}
           ${d.conflicts?.length ? `<p class="bad">이전 결정과 다를 수 있는 점: ${esc(d.conflicts.join(' / '))}</p>` : ''}
         </div>
-        ${t.final_report ? `<div class="card report"><h2 style="margin-top:0">최종 보고서</h2>${doc(t.final_report)}</div>` : ''}
+        ${t.final_report ? `<div class="card report"><h2 style="margin-top:0">최종 보고서</h2>
+          <p><a class="btn" href="/tasks/${id}/report" target="_blank">HTML 보고서 보기</a> <a class="btn gray" href="/tasks/${id}/report?download=1">HTML 파일로 받기</a></p>
+          ${doc(t.final_report)}</div>` : ''}
+        ${t.status === '완료' ? wikiHtml(t) : ''}
         <div class="card"><h2 style="margin-top:0">회의록</h2>${meetingHtml}</div>
         ${decisions.length ? `<div class="card"><h2 style="margin-top:0">확정된 결정사항</h2><ol>${decisions.map((x) => `<li>${esc(x.content)} <span class="muted">(${esc(x.decided_by)})</span></li>`).join('')}</ol></div>` : ''}
         <div class="card"><h2 style="margin-top:0">산출물</h2>${delivHtml}</div>
@@ -164,6 +169,35 @@ router.get('/tasks/:id', async (req, res) => {
     </div>
   `, { active: '/tasks' }));
 });
+
+function wikiHtml(t) {
+  const id = t.id;
+  if (t.wiki_path) {
+    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2><p class="ok">저장했습니다: ${esc(t.wiki_path)}</p>
+      <p class="muted">${fmt(t.wiki_saved_at)} · index.md와 log.md에도 한 줄씩 추가했습니다. 옵시디언에서 바로 보입니다.</p></div>`;
+  }
+  const d = t.wiki_draft;
+  if (!d) {
+    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2>
+      <p class="muted">이 업무 결과를 C:\\ThetaRO 위키에 남길지 김비서가 위키 규칙(저장 필터·분류·파일 이름)에 맞춰 저장안을 먼저 만듭니다. 대표님이 확인하고 저장을 눌러야 실제로 저장됩니다.</p>
+      <form method="post" action="/tasks/${id}/wiki/draft"><button>위키 저장안 만들기</button></form></div>`;
+  }
+  const cat = wiki.CATEGORIES[d.category] || {};
+  return `<div class="card approve"><h2 style="margin-top:0">위키 저장안 확인</h2>
+    ${d.save ? '' : `<p class="bad">김비서 판단: 저장 필터를 통과하지 못합니다. ${esc(d.not_save_reason)}</p>`}
+    <table>
+      <tr><th>저장 위치</th><td>AI-Sessions/wiki/${esc(cat.dir || '')}/<b>${esc(d.name)}.md</b> (${esc(cat.name || '')}, ${d.status === 'draft' ? '초안' : '확정'})</td></tr>
+      <tr><th>index.md 한 줄 요약</th><td>${esc(d.summary)}</td></tr>
+      <tr><th>통과한 저장 필터</th><td>${esc((d.filter_reasons || []).join(' / ') || '-')}</td></tr>
+      <tr><th>연결 문서</th><td>${esc((d.links || []).join(', ') || '-')}</td></tr>
+    </table>
+    <details open><summary>문서 본문 미리보기</summary>${doc(wiki.fileText(d, t))}</details>
+    <div class="row" style="margin-top:12px">
+      ${d.save ? `<form method="post" action="/tasks/${id}/wiki/save"><button class="green">위키에 저장</button></form>` : ''}
+      <form method="post" action="/tasks/${id}/wiki/draft"><button class="gray">저장안 다시 만들기</button></form>
+      <form method="post" action="/tasks/${id}/wiki/discard"><button class="gray">저장 안 함</button></form>
+    </div></div>`;
+}
 
 function planHtml(m) {
   const p = m.assignment_plan || {};
@@ -205,6 +239,40 @@ router.post('/tasks/:id/resume', async (req, res) => {
   const id = Number(req.params.id);
   try { await engine.resume(id); back(res, `/tasks/${id}`, '다시 진행합니다.'); }
   catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
+});
+
+// ───── HTML 보고서 ─────
+router.get('/tasks/:id/report', async (req, res) => {
+  const id = Number(req.params.id);
+  const html = await report.reportHtml(id);
+  if (!html) return res.status(404).send(layout('없음', '<h1>최종 보고서가 아직 없습니다.</h1>'));
+  if (req.query.download) {
+    const name = `세타온_업무${id}_최종보고서.html`;
+    res.set('Content-Disposition', `attachment; filename="report-${id}.html"; filename*=UTF-8''${encodeURIComponent(name)}`);
+  }
+  res.type('html').send(html);
+});
+
+// ───── 위키 저장 ─────
+router.post('/tasks/:id/wiki/draft', async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    await query('UPDATE tasks SET wiki_draft=NULL WHERE id=$1 AND wiki_path IS NULL', [id]);
+    await engine.requestWikiDraft(id);
+    back(res, `/tasks/${id}`, '김비서가 위키 저장안을 만들고 있습니다. 1~3분 뒤 이 화면에 나타납니다.');
+  } catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
+});
+router.post('/tasks/:id/wiki/save', async (req, res) => {
+  const id = Number(req.params.id);
+  try {
+    const r = await wiki.saveDraft(id);
+    back(res, `/tasks/${id}`, `위키에 저장했습니다: ${r.rel}${r.archived ? ` (달이 바뀌어 지난달 로그 ${r.archived}줄을 archive로 옮겼습니다)` : ''}`);
+  } catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
+});
+router.post('/tasks/:id/wiki/discard', async (req, res) => {
+  const id = Number(req.params.id);
+  await query('UPDATE tasks SET wiki_draft=NULL WHERE id=$1 AND wiki_path IS NULL', [id]);
+  back(res, `/tasks/${id}`, '위키 저장안을 지웠습니다.');
 });
 
 // ───── 메신저 (화면 → 서버) ─────

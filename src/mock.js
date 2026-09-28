@@ -61,6 +61,19 @@ async function respond({ emp, purpose, prompt }) {
         report: '# 최종 보고\n시험 업무를 마쳤습니다.',
         staff_notes: [{ employee: '서영업', note: '64% 같은 금지 수치를 쓰지 않도록 주의.' }],
       });
+    case 'wiki_draft':
+      return j({
+        save: true,
+        filter_reasons: ['3) 의사결정 근거와 결정권자 추적 필요'],
+        not_save_reason: '',
+        category: 'decision',
+        slug: 'mock-wiki-save-test',
+        title: '시험 위키 저장',
+        summary: '위키 저장 기능 시험 문서',
+        status: 'draft',
+        body: '## Summary\n시험입니다.\n\n## Context\n시험.\n\n## Details\n시험.\n\n## Links\n- [[theta-definition]]',
+        links: ['theta-definition', 'no-such-doc'],
+      });
     default:
       return t('시험 응답');
   }

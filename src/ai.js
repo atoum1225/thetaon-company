@@ -6,7 +6,8 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const WIKI_DIR = 'C:\\ThetaRO';
+// 시험할 때는 WIKI_DIR로 위키 사본을 가리켜 실제 위키를 건드리지 않는다.
+const WIKI_DIR = process.env.WIKI_DIR || 'C:\\ThetaRO';
 const CLAUDE_BIN = process.env.CLAUDE_BIN || path.join(os.homedir(), '.local', 'bin', 'claude.exe');
 const AGY_BIN = process.env.AGY_BIN || path.join(process.env.LOCALAPPDATA || '', 'agy', 'bin', 'agy.exe');
 // AI가 일하는 빈 폴더. C:\atoum 밖에 둬서 .env나 본부 코드가 AI 눈에 들어가지 않게 한다.
