@@ -36,6 +36,13 @@ function existingDocs() {
 function summaryOf(report, title) {
   const text = String(report || '');
   const sec = text.match(/^#{1,3}\s*요약[^\n]*\n+([\s\S]*?)(?=\n#{1,3}\s|$)/m);
+  // 개조식 보고서(2026-10-03~)는 요약 절의 첫 항목을 쓴다.
+  const bullet = sec && sec[1].match(/^\s*[-*]\s+(.+)$/m);
+  if (bullet) {
+    let b = bullet[1].replace(/\*\*|__|[*`>]/g, '').replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1').trim();
+    if (b.length > 110) b = b.slice(0, 105).replace(/\s\S*$/, '') + '…';
+    return b || title;
+  }
   const src = (sec ? sec[1] : text.replace(/^#.*$/gm, ''))
     .replace(/\*\*|__|[*`>]/g, '').replace(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g, '$1').replace(/\s+/g, ' ').trim();
   let s = (src.match(/^.*?(?:다|요|음)\.(?=\s|$)/) || [src])[0];
@@ -49,7 +56,11 @@ function plan(t) {
   let name = base;
   for (let i = 2; names.has(name); i++) name = `${base}-${i}`;
   // 보고서에 대표님 확인이 남아 있으면 위키 규칙대로 draft로 둔다.
-  const pending = /대표님이?\s*확인하실|확인\s*필요|CEO\s*확인|승인\s*(?:요청|대기)|판단\s*요청/.test(t.final_report || '');
+  // 개조식 보고서는 "남은 과제·대표님 확인" 절에 "없음"만 있으면 확인할 것이 없는 것으로 본다.
+  const rest = (t.final_report || '').match(/^#{1,3}\s*남은 과제[^\n]*\n+([\s\S]*?)(?=\n#{1,3}\s|$)/m);
+  const pending = rest
+    ? !/^[\s\-*]*(?:없음|해당\s*없음)\.?\s*$/.test(rest[1].trim())
+    : /대표님이?\s*확인하실|확인\s*필요|CEO\s*확인|승인\s*(?:요청|대기)|판단\s*요청/.test(t.final_report || '');
   const links = [...new Set([...(t.final_report || '').matchAll(/\[\[([^\]|]+)(?:\|[^\]]+)?\]\]/g)].map((m) => m[1].trim()))].filter((x) => names.has(x));
   return {
     name,

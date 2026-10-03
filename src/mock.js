@@ -41,13 +41,13 @@ async function respond({ emp, purpose, prompt, web = 'off' }) {
         // [CEO 지시]에 "원문 확인 시험"이 있으면(과거 기록 부분은 보지 않음) 김비서가 원문 확인을 요청하는 경로를 탄다.
         research_needed: /원문 확인 시험/.test(prompt.split('\n\n')[0]),
         research_reason: /원문 확인 시험/.test(prompt.split('\n\n')[0]) ? '시험: 공식 통계 원문 확인이 필요합니다.' : '',
-        opening: '시험 업무로 회의를 열겠습니다. 황기획, 서영업 의견 부탁합니다.',
+        opening: '시험 업무 회의를 시작하겠습니다.\n- 범위와 마감 확인\n- 담당별 산출물 정하기',
       });
     case 'speak':
-      return t(`${emp.name} 의견입니다. 시험 발언입니다.`);
+      return t(`${emp.name} 의견은 이렇습니다.\n- 시험 의견 하나\n- 할 수 있는 일: 시험 산출물 작성\n- 필요한 것: 시험 자료`);
     case 'advise_meeting': {
       const s = mockSources(web);
-      return { ...j({ advice: '참고 의견입니다. 대외 수치는 조건을 붙여 쓰는 것을 권합니다.', sources: s.sources }), web: s.used };
+      return { ...j({ advice: '대외 수치는 조건을 붙여 쓰는 것을 권합니다.\n- 측정 조건 누락 위험 있음\n- 범위 표기 우회 점검 필요', sources: s.sources }), web: s.used };
     }
     case 'chair':
       return j({ continue: false, comment: '이 정도면 정리하겠습니다.' });
@@ -55,7 +55,7 @@ async function respond({ emp, purpose, prompt, web = 'off' }) {
       return t('네 대표님, 말씀 반영하겠습니다.');
     case 'minutes':
       return j({
-        minutes: '시험 회의록입니다.',
+        minutes: '- 황기획: 기획안 구조 제안\n- 서영업: 제안 문안 방향 제시\n- 쫑전략: 수치 조건 점검 권고',
         decisions: [{ content: '시험 결정 1', rationale: '시험 근거' }],
         assignments: [
           { employee: '황기획', title: '기획안', description: '기획안 작성' },
@@ -66,10 +66,10 @@ async function respond({ emp, purpose, prompt, web = 'off' }) {
     case 'work': {
       const rework = /재작업/.test(prompt);
       if (emp.name === '서영업' && !rework) return t('# 제안 문안\n세타로는 GPU 전력을 64% 절감합니다.');
-      return t(`# ${emp.name} 산출물\n시험 산출물입니다. 토큰당 에너지 −22.7%(J/tok, GPU 소켓 기준, H200×4·72B).`);
+      return t(`## 요약\n- ${emp.name} 시험 산출물임\n\n## 내용\n| 항목 | 값 | 근거 |\n|---|---|---|\n| 토큰당 에너지 | −22.7% | J/tok, GPU 소켓 기준, H200×4·72B |`);
     }
     case 'review':
-      return j({ result: '통과', note: '기준 충족' });
+      return j({ result: '통과', note: '- 검수 기준 모두 충족\n- 수치에 측정 조건 붙어 있음' });
     case 'advise': {
       const s = mockSources(web);
       return { ...j({ advice: '조건부 수치의 측정 조건이 잘 붙어 있습니다. 대외 배포 전 한 번 더 확인을 권합니다.', risks: ['조건 누락 위험'], sources: s.sources }), web: s.used };
@@ -78,7 +78,7 @@ async function respond({ emp, purpose, prompt, web = 'off' }) {
       return j({ adopted: '반영', reason: '타당한 조언이라 반영합니다.' });
     case 'final':
       return j({
-        report: '# 최종 보고\n시험 업무를 마쳤습니다.',
+        report: '## 요약\n- 시험 업무 완료\n- 산출물 2건 모두 통과\n\n## 결정사항\n- 시험 결정 1\n\n## 산출물 결과\n| 산출물 | 담당 | 검수 | 핵심 내용 |\n|---|---|---|---|\n| 기획안 | 황기획 | 통과 | 시험 기획안 |\n| 제안 문안 | 서영업 | 통과 | 금지 수치 제거 후 통과 |\n\n## 전략 조언 반영\n- 수치 조건 점검 → 반영, 타당함\n\n## 남은 과제·대표님 확인\n- 없음',
         staff_notes: [{ employee: '서영업', note: '64% 같은 금지 수치를 쓰지 않도록 주의.' }],
       });
     default:

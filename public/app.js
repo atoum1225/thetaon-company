@@ -100,7 +100,9 @@
     const link = withTask && m.task_id ? `<a class="muted" href="/tasks/${m.task_id}">#${m.task_id}</a> ` : '';
     const div = document.createElement('div');
     div.className = `msg ${cls}`;
-    div.innerHTML = `${link}<b>${esc(who)}</b> <span class="muted">${fmt(m.created_at)}</span><div>${esc(m.body)}</div>`;
+    // 서버가 마크다운을 안전한 HTML로 바꿔 보낸다(html). 없으면 글자 그대로.
+    div.innerHTML = `${link}<b>${esc(who)}</b> <span class="muted">${fmt(m.created_at)}</span>` +
+      (m.html ? `<div class="md">${m.html}</div>` : `<div class="plain">${esc(m.body)}</div>`);
     return div;
   }
 

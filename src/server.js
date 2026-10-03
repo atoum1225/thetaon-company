@@ -9,6 +9,7 @@ const { router } = require('./pages');
 const engine = require('./engine');
 const bus = require('./bus');
 const { startDailyBackup } = require('./backup');
+const { render } = require('./report');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || 4100);
@@ -41,7 +42,8 @@ const server = http.createServer(app);
 const io = new Server(server, {
   allowRequest: (req, cb) => cb(null, ALLOWED_HOSTS.has(req.headers.host) && originOk(req.headers.origin)),
 });
-bus.on('message', (m) => io.emit('message', m));
+// 메시지는 개조식 마크다운이라 서버에서 HTML로 바꿔 보낸다(report.render, 태그는 글자로).
+bus.on('message', (m) => io.emit('message', { ...m, html: render(m.body) }));
 bus.on('task', (t) => io.emit('task', t));
 bus.on('working', (w) => io.emit('working', w));
 io.on('connection', (socket) => {

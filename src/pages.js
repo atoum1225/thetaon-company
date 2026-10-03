@@ -15,7 +15,8 @@ const CLAUDE_MODELS = ['sonnet', 'opus', 'haiku'];
 const GEMINI_MODELS = ['gemini-3.1-pro-high', 'gemini-3.1-pro-low', 'gemini-3.8-flash-high', 'gemini-3.8-flash-medium'];
 
 const fmt = (d) => (d ? new Date(d).toLocaleString('ko-KR', { hour12: false }) : '');
-const doc = (s) => `<pre class="doc">${esc(s)}</pre>`;
+// AI가 쓴 마크다운(개조식 항목·표·소제목)을 보기 좋게 그린다. HTML 태그는 글자로 보여 준다(report.render).
+const doc = (s) => `<div class="md">${report.render(s)}</div>`;
 const back = (res, url, msg) => res.redirect(`${url}${url.includes('?') ? '&' : '?'}msg=${encodeURIComponent(msg)}`);
 const notice = (req) => (req.query.msg ? `<div class="card notice">${esc(req.query.msg)}</div>` : '');
 
@@ -288,7 +289,7 @@ router.get('/tasks/:id', async (req, res) => {
         <div class="card"><h2 style="margin-top:0">산출물</h2>${delivHtml}</div>
         <div class="card"><h2 style="margin-top:0">쫑전략 조언</h2>${adviceHtml}</div>
         <div class="card"><h2 style="margin-top:0">외부 자료 <span class="muted" style="font-size:14px;font-weight:400">쫑전략 조사 · 신뢰 사이트</span></h2>${sourcesHtml(sources)}</div>
-        <div class="card"><h2 style="margin-top:0">진행 기록</h2><table>${events.map((e) => `<tr><td class="muted">${fmt(e.created_at)}</td><td>${esc(e.kind)}</td><td>${esc(e.actor)}</td><td>${esc(e.detail || '')}</td></tr>`).join('')}</table></div>
+        <div class="card"><h2 style="margin-top:0">진행 기록</h2><table class="log">${events.map((e) => `<tr><td class="muted">${fmt(e.created_at)}</td><td>${esc(e.kind)}</td><td>${esc(e.actor)}</td><td>${esc(e.detail || '')}</td></tr>`).join('')}</table></div>
       </div>
       <div>${chatPanel(id, `업무 #${id}`, trashed)}</div>
     </div>
@@ -422,7 +423,7 @@ router.get('/api/messages', async (req, res) => {
     `SELECT * FROM (SELECT * FROM messages WHERE ${taskId ? 'task_id=$1' : 'task_id IS NULL'} ORDER BY id DESC LIMIT 300) x ORDER BY id`,
     taskId ? [taskId] : []
   );
-  res.json(r.rows);
+  res.json(r.rows.map((m) => ({ ...m, html: report.render(m.body) })));
 });
 router.post('/api/messages', async (req, res) => {
   const body = String(req.body.body || '').trim();
@@ -442,7 +443,7 @@ router.get('/messenger', async (req, res) => {
 
 function msgHtml(m, withTask) {
   const cls = m.kind === 'CEO' ? 'ceo' : m.kind === '시스템' ? 'sys' : '';
-  return `<div class="msg ${cls}">${withTask && m.task_id ? `<a class="muted" href="/tasks/${m.task_id}">#${m.task_id}</a> ` : ''}<b>${esc(m.kind === 'CEO' ? '대표님' : m.speaker)}</b> <span class="muted">${fmt(m.created_at)}</span><div>${esc(m.body)}</div></div>`;
+  return `<div class="msg ${cls}">${withTask && m.task_id ? `<a class="muted" href="/tasks/${m.task_id}">#${m.task_id}</a> ` : ''}<b>${esc(m.kind === 'CEO' ? '대표님' : m.speaker)}</b> <span class="muted">${fmt(m.created_at)}</span><div class="md">${report.render(m.body)}</div></div>`;
 }
 
 // ───── 과거 업무 검색 ─────

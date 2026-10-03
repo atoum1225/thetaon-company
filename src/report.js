@@ -12,7 +12,7 @@ const md = new Marked({
     html({ text }) { return esc(text); },
     link({ href, tokens }) {
       const label = this.parser.parseInline(tokens);
-      return /^https?:\/\//i.test(href) ? `<a href="${esc(href)}" rel="noreferrer">${label}</a>` : label;
+      return /^https?:\/\//i.test(href) ? `<a href="${esc(href)}" target="_blank" rel="noopener noreferrer">${label}</a>` : label;
     },
     image({ text }) { return esc(text || ''); },
   },
@@ -46,6 +46,8 @@ async function reportHtml(id) {
   .meta { color: var(--muted); font-size: 13px; display:flex; flex-wrap:wrap; gap: 4px 18px; }
   .report h1 { font-size: 20px; } .report h2 { font-size: 18px; border-left: 4px solid var(--accent); padding-left: 10px; margin-top: 28px; }
   .report h3 { font-size: 16px; }
+  .report ul, .report ol { margin: 6px 0 10px; padding-left: 22px; } .report li { margin: 3px 0; }
+  .report p { margin: 6px 0; }
   table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
   th, td { border: 1px solid var(--line); padding: 6px 8px; text-align: left; vertical-align: top; }
   th { background: #f3f4f6; }

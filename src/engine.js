@@ -145,7 +145,7 @@ const WEB_TASK = {
   search: `신뢰 사이트 목록에서 이 업무와 관련된 정책·통계·시장 동향 자료를 검색해 근거로 쓴다(검색만, 원문은 열지 않는다).`,
   read: `신뢰 사이트 목록에서 이 업무와 관련된 정책·통계·시장 동향 자료를 검색하고, 중요한 수치는 원문을 열어 확인한다.`,
 };
-const SOURCES_RULE = `sources에는 실제로 찾은 자료만 적는다(최대 5개, 없으면 빈 목록). org=기관, title=자료 제목, url=찾은 주소(모르면 기관 홈페이지), date=발표 시기, point=이 업무에 관련된 내용 한두 문장. 자료를 지어내지 않는다.`;
+const SOURCES_RULE = `sources에는 실제로 찾은 자료만 적는다(최대 5개, 없으면 빈 목록). org=기관, title=자료 제목, url=찾은 주소(모르면 기관 홈페이지), date=발표 시기, point=이 업무에 관련된 내용 한 줄(개조식). 자료를 지어내지 않는다.`;
 
 // 찾은 자료를 저장하고, 메신저에 붙일 목록 글을 돌려준다.
 async function saveSources(taskId, meetingId, purpose, sources, used) {
@@ -159,9 +159,10 @@ async function saveSources(taskId, meetingId, purpose, sources, used) {
       `INSERT INTO external_sources (task_id, meeting_id, purpose, org, title, url, pub_date, point, trusted, opened) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [taskId, meetingId, purpose, s.org, s.title, url, s.date, s.point, trusted, wasOpened]
     );
-    lines.push(`- ${s.org}, 「${s.title}」(${s.date || '시기 미확인'}) ${url}${trusted ? '' : ' [신뢰 목록 밖, 참고 제외 권장]'}${wasOpened ? ' [원문 확인함]' : ' [검색 요약, 원문 확인 전]'}\n  ${s.point}`);
+    const where = /^https?:\/\//i.test(url) ? ` · [${hostOf(url)}](${url})` : '';
+    lines.push(`- ${s.org} 「${s.title}」(${s.date || '시기 미확인'}) · ${wasOpened ? '원문 확인함' : '원문 확인 전'}${trusted ? '' : ' · 신뢰 목록 밖, 참고 제외 권장'}${where}\n  - ${s.point}`);
   }
-  return lines.length ? `\n\n참고한 외부 자료:\n${lines.join('\n')}` : '';
+  return lines.length ? `\n\n참고한 외부 자료\n${lines.join('\n')}` : '';
 }
 
 // 지금까지 이 업무에서 찾은 외부 자료(다음 발언·보고서에 넘긴다)
@@ -255,7 +256,7 @@ const STEPS = {
       `이전 결정과 다른 방향이 필요해 보이면 conflicts에 적는다. 없으면 빈 목록.\n` +
       `지시에 마감이 없으면 deadline은 "미정(CEO 확인 필요)".\n` +
       `쫑전략은 회의에서 신뢰 사이트(정부·공공·연구기관, 언론사, 대기업)를 검색해 외부 자료를 낸다. 정책·법규·공식 통계·시장 수치처럼 검색 요약만으로는 틀릴 위험이 커서 원문을 열어 확인해야 하는 업무면 research_needed=true, research_reason에 이유 한 문장. 아니면 false와 빈 문자열.\n` +
-      `title은 20자 안팎의 업무 이름. opening은 회의를 여는 첫 발언(3~5문장, 참석자에게 무엇을 논의할지 말한다).`;
+      `title은 20자 안팎의 업무 이름. opening은 회의를 여는 첫 발언(개조식: 요지 한 줄 + 논의할 점 "- " 항목 2~4개).`;
     const r = await ask('김비서', { taskId: t.id, purpose: 'define', prompt, schema: S.define });
     const d = r.json;
     d.attendees = [...new Set((d.attendees || []).filter((a) => STAFF.includes(a)))];
@@ -314,7 +315,7 @@ const STEPS = {
       if (round >= MAX_ROUNDS) return conclude();
       const r = await ask('김비서', {
         taskId: t.id, purpose: 'chair', schema: S.chair,
-        prompt: `${base}\n\n[할 일]\n${round}라운드가 끝났다(최대 ${MAX_ROUNDS}라운드). 업무 배정안을 만들 만큼 논의가 됐으면 continue=false, 더 논의가 필요하면 true.\ncomment는 회의 진행자로서 짧게 한마디(다음 라운드에서 무엇을 좁힐지, 또는 정리하겠다는 말).`,
+        prompt: `${base}\n\n[할 일]\n${round}라운드가 끝났다(최대 ${MAX_ROUNDS}라운드). 업무 배정안을 만들 만큼 논의가 됐으면 continue=false, 더 논의가 필요하면 true.\ncomment는 회의 진행자로서 한두 줄(다음 라운드에서 좁힐 점은 "- " 항목으로, 또는 정리하겠다는 한 줄).`,
       });
       await post(t.id, '김비서', r.json.comment, '발언', m.id);
       if (!r.json.continue) return conclude();
@@ -331,14 +332,14 @@ const STEPS = {
       const r = await ask('쫑전략', {
         taskId: t.id, purpose: 'advise_meeting', schema: S.advise_meeting, web,
         prompt: `${base}\n\n${await rules.rulesText()}\n\n[할 일]\n${round}라운드 조언자 발언. 논의에서 금지 수치나 조건 없는 수치가 쓰일 위험, 사업 리스크를 짚는다. ` +
-          `외부 자료가 있으면 근거로 들되, 회사 위키·결정과 다르면 다르다고만 알린다. advice는 3~6문장. 결정하지 말고 권고로 말한다.\n${task}`,
+          `외부 자료가 있으면 근거로 들되, 회사 위키·결정과 다르면 다르다고만 알린다. advice는 개조식(요지 한 줄 + "- " 항목 2~4개). 결정하지 말고 "~권함", "~위험 있음"처럼 권고로 쓴다. 자료 목록은 sources에만 넣고 advice에 되풀이하지 않는다.\n${task}`,
       });
       const list = web === 'off' ? '' : await saveSources(t.id, m.id, 'advise_meeting', r.json.sources, r.web);
       await post(t.id, '쫑전략', `${r.json.advice}${list}`, '발언', m.id);
     } else {
       const r = await ask(speaker, {
         taskId: t.id, purpose: 'speak',
-        prompt: `${base}\n\n[할 일]\n지금은 ${round}라운드(최대 ${MAX_ROUNDS}), 네 차례다. 자기 담당 관점에서 의견을 낸다. 앞사람 말에 반응하고, 할 수 있는 일과 필요한 것을 구체적으로. 4~8문장. 결정은 김비서와 CEO가 한다.\n위키 근거가 필요하면 C:\\ThetaRO 파일을 열어 확인해도 된다.`,
+        prompt: `${base}\n\n[할 일]\n지금은 ${round}라운드(최대 ${MAX_ROUNDS}), 네 차례다. 자기 담당 관점에서 의견을 낸다. 개조식: 요지 한 줄 + "- " 항목 3~5개(앞사람 말에 대한 의견, 할 수 있는 일, 필요한 것). 앞사람이 한 말은 되풀이하지 않는다. 결정은 김비서와 CEO가 한다.\n위키 근거가 필요하면 C:\\ThetaRO 파일을 열어 확인해도 된다.`,
       });
       await post(t.id, speaker, r.text, '발언', m.id);
     }
@@ -351,7 +352,7 @@ const STEPS = {
     const r = await ask('김비서', {
       taskId: t.id, purpose: 'minutes', schema: S.minutes,
       prompt: `${defText(t)}\n\n${(await rejectReasons(t.id)) || ''}\n\n[회의 대화]\n${await transcript(t.id, m.created_at)}\n\n` +
-        `[할 일]\n회의록(minutes, 논의 흐름 요약 5~10문장), 결정사항(decisions, 근거 포함), 업무 배정(assignments: 담당자는 이번 회의 참석자(${m.attendees.filter((a) => a !== '쫑전략').join(', ')}) 중에서 고르는 것이 원칙이고, 꼭 다른 직원이 필요하면 회의록에 이유를 적는다. 각자 무엇을 만들지 구체적으로), ` +
+        `[할 일]\n회의록(minutes, 개조식 "- " 항목 5~8개: 누가 무엇을 주장했고 어디로 모였는지), 결정사항(decisions: content는 한 줄, rationale은 짧은 근거), 업무 배정(assignments: 담당자는 이번 회의 참석자(${m.attendees.filter((a) => a !== '쫑전략').join(', ')}) 중에서 고르는 것이 원칙이고, 꼭 다른 직원이 필요하면 회의록에 이유를 적는다. 각자 무엇을 만들지 구체적으로), ` +
         `검수 기준(review_criteria: 김비서가 결과물을 통과/미달로 판정할 기준을 번호로)을 만든다. 금지 수치 검사 통과는 기준에 항상 넣는다.` +
         (t.reject_count ? '\n반려 사유를 어떻게 반영했는지 회의록에 적는다.' : ''),
     });
@@ -391,7 +392,9 @@ const STEPS = {
       taskId: t.id, purpose: 'work',
       prompt: `${defText(t)}\n\n${planText(plan)}\n\n[검수 기준]\n${m.review_criteria}\n\n[대표님 말씀]\n${await ceoTalk(t.id)}\n\n` +
         `${await rules.rulesText()}\n\n[네가 맡은 일]\n${a.title}: ${a.description}${rework}\n\n` +
-        `[쓰는 방법]\n산출물 본문만 마크다운으로 쓴다(인사말 없이). 수치나 사실에는 근거 문서를 괄호로 붙이고, 근거가 없으면 "미확인"이라고 쓴다. 위키 근거가 필요하면 C:\\ThetaRO 파일을 열어 확인한다.`,
+        `[쓰는 방법]\n산출물 본문만 마크다운 개조식으로 쓴다(인사말 없이). 맨 위 "## 요약"에 "- " 항목 3개 이내, 이어서 "## 소제목"별 항목, 비교·수치·일정은 표.\n` +
+        `대외로 나갈 글(메일 문안, 제안서 문장 등)은 그 글 자체는 받는 사람이 읽을 형태로 쓰되, 앞뒤 설명은 개조식으로.\n` +
+        `수치나 사실에는 근거 문서를 괄호로 붙이고, 근거가 없으면 "미확인"이라고 쓴다. 위키 근거가 필요하면 C:\\ThetaRO 파일을 열어 확인한다.`,
     });
     const version = prev ? prev.version + 1 : 1;
     await query(
@@ -419,13 +422,13 @@ const STEPS = {
           taskId: t.id, purpose: 'review', schema: S.review,
           prompt: `${defText(t)}\n\n[검수 기준]\n${m.review_criteria}\n\n[배정 내용]\n${m.assignment_plan.assignments[d.assignment_idx]?.description || d.title}\n\n` +
             `[자동 검사에서 조건 확인이 필요한 수치]\n${rules.hitsText(hits)}\n\n[산출물: ${d.title} v${d.version}, ${d.employee_name}]\n${cut(d.body, 12000)}\n\n` +
-            `[할 일]\n검수 기준에 맞춰 통과/미달을 판정한다. 조건부 수치가 조건 없이 쓰였으면 미달. note에는 판정 이유와 고칠 점을 구체적으로 적는다.`,
+            `[할 일]\n검수 기준에 맞춰 통과/미달을 판정한다. 조건부 수치가 조건 없이 쓰였으면 미달. note는 개조식 "- " 항목 2~5개(판정 이유, 고칠 점을 구체적으로).`,
         });
         result = r.json.result;
         note = r.json.note;
       }
       await query('UPDATE deliverables SET review_result=$2, review_note=$3, forbidden_hits=$4 WHERE id=$1', [d.id, result, note, JSON.stringify(hits)]);
-      await post(t.id, '김비서', `검수: "${d.title}" v${d.version} — ${result}. ${note}`);
+      await post(t.id, '김비서', `검수 결과: 「${d.title}」 v${d.version} — ${result}\n${/^\s*-/.test(note) ? note : `- ${note}`}`);
       return;
     }
     const failed = latest.filter((x) => x.review_result === '미달');
@@ -455,7 +458,7 @@ const STEPS = {
         taskId: t.id, purpose: 'advise', schema: S.advise, web,
         prompt: `${defText(t)}\n\n${planText(m.assignment_plan)}\n\n${await rules.rulesText()}\n\n[산출물]\n${docs}\n\n` +
           `[회의에서 찾은 외부 자료]\n${await sourcesText(t.id)}\n\n` +
-          `[할 일]\n산출물 전체를 보고 금지 수치 기준과 리스크 관점에서 조언한다. advice는 조언 본문(5~12문장, 권고형), risks는 짧은 리스크 목록. 결정하지 않는다.\n` +
+          `[할 일]\n산출물 전체를 보고 금지 수치 기준과 리스크 관점에서 조언한다. advice는 개조식(요지 한 줄 + "- " 항목 3~6개, "~권함" 같은 권고형), risks는 한 줄짜리 리스크 목록. 자료 목록은 sources에만. 결정하지 않는다.\n` +
           `산출물에 나온 외부 사실·시장 수치·정책 내용을 신뢰 사이트에서 확인해 맞는지, 최신인지 짚는다. ${WEB_TASK[web]}\n${SOURCES_RULE}`,
       });
       const list = await saveSources(t.id, null, 'advise', r.json.sources, r.web);
@@ -488,9 +491,15 @@ const STEPS = {
       prompt: `${defText(t)}\n\n${planText(m.assignment_plan)}\n\n[대표님 말씀]\n${await ceoTalk(t.id)}\n\n[반려 ${t.reject_count}회, 재작업 ${t.rework_count}회]\n\n` +
         `[산출물]\n${docs}\n\n[쫑전략 조언(참고 의견)]\n${a?.content || '(없음)'}\n반영 여부: ${a?.adopted || '-'} / 이유: ${a?.reason || '-'}\n\n` +
         `[쫑전략이 찾은 외부 자료]\n${await sourcesText(t.id)}\n\n` +
-        `${await rules.rulesText()}\n\n[할 일]\nCEO에게 올릴 최종 보고서를 마크다운으로 쓴다. 순서: 요약(3~5문장), 결정사항, 산출물별 결과, 검수 결과, 전략 조언과 반영 여부·이유, 외부 참고 자료, 남은 과제와 대표님이 확인하실 것.\n` +
-        `외부 참고 자료는 위 목록에서 보고서에 실제로 쓰인 것만 기관·제목·시기·주소와 [원문 확인함]/[원문 확인 전] 표시를 붙여 적는다. 없으면 이 절은 뺀다. 원문 확인 전 수치를 대외 문서에 쓰려면 원문 확인이 먼저라고 남은 과제에 적는다.\n` +
-        `산출물 본문을 그대로 다 옮기지 말고 요점만. 금지 수치는 쓰지 않는다.\n` +
+        `${await rules.rulesText()}\n\n[할 일]\nCEO에게 올릴 최종 보고서를 마크다운 개조식으로 쓴다. 한 화면에 한눈에 들어오게, 아래 틀을 그대로 따른다(절 제목 바꾸지 않음).\n` +
+        `## 요약\n- 결론 한 줄\n- 핵심 결과 한두 줄(3줄 이내)\n\n` +
+        `## 결정사항\n- 확정된 결정 한 줄씩\n\n` +
+        `## 산출물 결과\n| 산출물 | 담당 | 검수 | 핵심 내용 |\n(핵심 내용은 한 줄. 검수는 통과/미완료)\n\n` +
+        `## 전략 조언 반영\n- 조언 요지 → 반영/일부 반영/미반영, 이유 한 줄\n\n` +
+        `## 외부 참고 자료\n- 기관 「제목」(시기) [원문 확인함]/[원문 확인 전] 주소 — 위 목록에서 보고서에 실제로 쓰인 것만. 없으면 이 절은 뺀다.\n\n` +
+        `## 남은 과제·대표님 확인\n- 대표님이 정하거나 확인하실 것, 후속 지시가 필요한 것. 없으면 "- 없음" 한 줄.\n` +
+        `원문 확인 전 수치를 대외 문서에 쓰려면 원문 확인이 먼저라고 남은 과제에 적는다.\n` +
+        `산출물 본문을 그대로 옮기지 말고 요점만. 금지 수치는 쓰지 않는다.\n` +
         `이 보고서로 이 업무는 끝난다. 검수를 통과하지 못한 산출물은 "미완료"로 적고, 마저 하려면 대표님의 후속 업무 지시가 필요하다고 쓴다. "재작업 지시함", "재검수 예정"처럼 이 업무 안에서 더 진행될 것처럼 쓰지 않는다.\nstaff_notes에는 다음 업무에 이어 쓸 직원별 메모를 적는다(참여한 직원만, 한두 문장).`,
     });
     let report = r.json.report;
@@ -521,7 +530,7 @@ async function handleInterrupts(t) {
   const rr = await ask('김비서', {
     taskId: t.id, purpose: 'reply_ceo',
     prompt: `${defText(t)}\n현재 상태: ${t.status}${t.wiki_path ? `\n위키 저장: 이미 저장함(${t.wiki_path})` : ''}\n\n[최근 대화]\n${await transcript(t.id, null, 8000)}\n\n[대표님이 방금 하신 말]\n${r.rows.map((x) => x.body).join('\n')}\n\n` +
-      `[할 일]\n대표님 말씀에 바로 답한다(2~5문장). 지시면 어떻게 반영할지, 질문이면 아는 만큼 답한다. 반영은 이후 발언과 작업에서 한다. 배정안 승인·반려는 화면의 버튼으로 해 주셔야 한다고 필요하면 안내한다.`,
+      `[할 일]\n대표님 말씀에 바로 답한다(답 한 줄 + 필요하면 "- " 항목 2~3개). 지시면 어떻게 반영할지, 질문이면 아는 만큼 답한다. 반영은 이후 발언과 작업에서 한다. 배정안 승인·반려는 화면의 버튼으로 해 주셔야 한다고 필요하면 안내한다.`,
   });
   await query('UPDATE messages SET handled=true WHERE id = ANY($1)', [ids]);
   await post(t.id, '김비서', rr.text);
@@ -537,7 +546,7 @@ async function replyGeneral() {
   const rr = await ask('김비서', {
     purpose: 'reply_ceo',
     prompt: `[최근 업무]\n${tasks.rows.map((x) => `#${x.id} ${x.title} (${x.status})`).join('\n') || '(없음)'}\n\n[일반 대화]\n${recent.rows.reverse().map((m) => `${m.kind === 'CEO' ? 'CEO(대표님)' : m.speaker}: ${m.body}`).join('\n')}\n\n` +
-      `[할 일]\n대표님 말씀에 답한다(2~5문장). 새 업무 지시로 보이면 업무 화면의 지시 입력창에 넣어 주시면 바로 시작한다고 안내한다.`,
+      `[할 일]\n대표님 말씀에 답한다(답 한 줄 + 필요하면 "- " 항목 2~3개). 새 업무 지시로 보이면 업무 화면의 지시 입력창에 넣어 주시면 바로 시작한다고 안내한다.`,
   });
   await query('UPDATE messages SET handled=true WHERE id = ANY($1)', [r.rows.map((x) => x.id)]);
   await post(null, '김비서', rr.text);
