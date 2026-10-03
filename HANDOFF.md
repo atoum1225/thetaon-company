@@ -9,6 +9,31 @@
 - DB: PostgreSQL 18, 실제 `thetaon_company`, 시험 `thetaon_test`. 비밀번호는 `.env`(절대 읽지 않음).
 - 업무 현황: #1 일시정지(지메일 확인, CEO가 멈춤), #2~#5 완료. #4는 위키 결정 문서로 저장됨(`AI-Sessions/wiki/decisions/2026-09-28-kt-catalog-v04-forbidden-number-check.md`, 옛 "저장안" 방식으로 저장된 것).
 
+## 시스템 설계 요약 (이어서 설계할 때 기준)
+
+### 구조
+```
+대표님(브라우저 127.0.0.1:4100) ─ 업무 사이트 + 메신저(Socket.IO 실시간)
+        │
+   본부 서버(Node.js/Express, src/server.js)
+        │
+   업무 진행기(src/engine.js) ── 대기열에서 한 번에 AI 호출 하나
+        ├─ Claude Code CLI `claude -p` (김비서·황기획·송개발·서영업, 모델 sonnet, 위키 읽기 도구만)
+        ├─ Antigravity CLI `agy` (쫑전략, gemini-3.1-pro-high, plan 모드, 도구 사용 안 함)
+        ├─ PostgreSQL 18 (공유 기억)
+        └─ C:\ThetaRO 위키 (읽기 전용 참고, 최종 보고서 저장만 CEO 버튼으로)
+```
+
+### 업무 흐름 (tasks.step 1~11)
+① 접수 → ② 김비서 과제 정의(과거 기록·위키 후보 자동 검색, 참석자 선정) → ③ 회의 소집 → ④ 토론(최대 3라운드, 한 번에 발언 하나: 참석자 → 쫑전략 → 김비서 진행 판단) → ⑤ 회의록·결정·배정안·검수 기준 → ⑥ **CEO 승인 대기**(반려 시 사유 들고 ③으로) → ⑦ 담당자 산출물 → ⑧ 김비서 검수(금지 수치 자동 미달, 재작업 최대 2회, 넘으면 일시정지) → ⑨ 쫑전략 조언 → 김비서 반영 판단 → ⑩ 최종 보고서(직원 작업 메모 저장) → 완료.
+상태값: 접수/회의중/승인대기/수행중/검수중/전략조언/완료 + 일시정지/한도대기/실패. 멈춤·재개는 paused_status에 원래 상태를 둔다.
+
+### DB 표 (scripts/db-init.js)
+employees(직원·모델), tasks(지시·상태·단계·정의 JSON·최종 보고서·위키 저장 경로), task_events(진행 기록), meetings(차수·참석·라운드·turn·회의록·배정안 JSON·검수 기준), messages(메신저, CEO 말은 handled로 처리 여부), decisions(CEO 승인된 결정), advice(쫑전략 조언·반영 여부), deliverables(배정 번호별 판·검수 결과·금지 수치 검사 결과), staff_notes, company_facts(회사 정보·금지/조건부 수치 규칙 정규식), ai_usage(호출 장부), system_log.
+
+### 화면 (src/pages.js, src/views.js, public/)
+대시보드(현황 타일·업무 지시·결재함·진행 중·완료 보고·직원 현황·일반 대화), 업무함(필터 탭·진행 막대), 업무 상세(단계 표시·승인/반려·회의록·산출물·조언·최종 보고서 HTML·위키 저장·메신저), 전체 메신저, 과거 업무 검색, 직원·규칙(모델 변경·금지 수치표), AI 사용량. 화면의 data-live 영역은 실시간 부분 갱신.
+
 ## CEO가 정한 것
 - 구독 로그인만 사용(Claude Pro, Google AI Pro). API 키 과금 금지. 외부 접속 4곳(Anthropic, Google, npm, GitHub 비공개) 허용.
 - 쫑전략은 Antigravity CLI(agy)로 동작. Gemini CLI는 개인 계정 지원 종료(2026-06-18)로 사용 불가.
