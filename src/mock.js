@@ -4,7 +4,20 @@
 // MOCK_FAIL_ONCE=review 처럼 주면 그 단계 첫 호출만 "응답 없음"으로 실패시켜 자동 재시도를 시험한다.
 const failedOnce = new Set();
 
-async function respond({ emp, purpose, prompt }) {
+// 쫑전략 외부 자료 조사 흉내: 검색하면 신뢰 사이트 자료 하나와 목록 밖 자료 하나를 돌려준다(목록 밖 표시 시험).
+function mockSources(web) {
+  if (web === 'off') return { sources: [], used: { searches: [], opened: [] } };
+  const opened = web === 'read' ? ['https://www.kostat.go.kr/'] : [];
+  return {
+    sources: [
+      { org: '국가데이터처', title: '시험 통계 자료', url: 'https://www.kostat.go.kr/', date: '2026-09', point: '시험용 외부 자료입니다.' },
+      { org: '개인 블로그', title: '목록 밖 시험 자료', url: 'https://blog.example.com/post', date: '2026-08', point: '신뢰 목록 밖 자료 표시 시험입니다.' },
+    ],
+    used: { searches: ['시험 검색어 site:go.kr'], opened },
+  };
+}
+
+async function respond({ emp, purpose, prompt, web = 'off' }) {
   await new Promise((r) => setTimeout(r, Number(process.env.MOCK_DELAY || 30)));
   if (process.env.MOCK_FAIL_ONCE === purpose && !failedOnce.has(purpose)) {
     failedOnce.add(purpose);
@@ -25,12 +38,17 @@ async function respond({ emp, purpose, prompt }) {
         attendees: ['황기획', '서영업'],
         references: [],
         conflicts: [],
+        // [CEO 지시]에 "원문 확인 시험"이 있으면(과거 기록 부분은 보지 않음) 김비서가 원문 확인을 요청하는 경로를 탄다.
+        research_needed: /원문 확인 시험/.test(prompt.split('\n\n')[0]),
+        research_reason: /원문 확인 시험/.test(prompt.split('\n\n')[0]) ? '시험: 공식 통계 원문 확인이 필요합니다.' : '',
         opening: '시험 업무로 회의를 열겠습니다. 황기획, 서영업 의견 부탁합니다.',
       });
     case 'speak':
       return t(`${emp.name} 의견입니다. 시험 발언입니다.`);
-    case 'advise_meeting':
-      return t('참고 의견입니다. 대외 수치는 조건을 붙여 쓰는 것을 권합니다.');
+    case 'advise_meeting': {
+      const s = mockSources(web);
+      return { ...j({ advice: '참고 의견입니다. 대외 수치는 조건을 붙여 쓰는 것을 권합니다.', sources: s.sources }), web: s.used };
+    }
     case 'chair':
       return j({ continue: false, comment: '이 정도면 정리하겠습니다.' });
     case 'reply_ceo':
@@ -52,8 +70,10 @@ async function respond({ emp, purpose, prompt }) {
     }
     case 'review':
       return j({ result: '통과', note: '기준 충족' });
-    case 'advise':
-      return j({ advice: '조건부 수치의 측정 조건이 잘 붙어 있습니다. 대외 배포 전 한 번 더 확인을 권합니다.', risks: ['조건 누락 위험'] });
+    case 'advise': {
+      const s = mockSources(web);
+      return { ...j({ advice: '조건부 수치의 측정 조건이 잘 붙어 있습니다. 대외 배포 전 한 번 더 확인을 권합니다.', risks: ['조건 누락 위험'], sources: s.sources }), web: s.used };
+    }
     case 'adopt':
       return j({ adopted: '반영', reason: '타당한 조언이라 반영합니다.' });
     case 'final':

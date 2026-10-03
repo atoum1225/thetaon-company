@@ -7,6 +7,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `.env`는 열지도, 출력하지도 않는다(DB 비밀번호). 오류 문장은 `src/db.js`의 `safeMessage`를 거친다.
 - AI 연결은 구독 로그인만 쓴다. Claude는 Claude Code CLI(`claude -p`), 쫑전략(Gemini)은 Antigravity CLI(`%LOCALAPPDATA%\agy\bin\agy.exe`, stream-json 표준입력). API 키 방식은 쓰지 않는다. Gemini CLI는 2026-06-18 개인 계정 지원 종료로 쓸 수 없다.
 - AI 직원은 `%TEMP%\thetaon-work`에서 실행되고 C:\ThetaRO 위키만 읽기 도구로 볼 수 있다. C:\ThetaON(급여·은행 자료)은 AI가 볼 수 없다.
+- 예외: 쫑전략은 신뢰 사이트(`src/sources.js`) 외부 자료를 조사한다(CEO 지시 2026-10-03). 평소엔 검색(search_web)만, 원문 열기(read_url_content)는 CEO가 켜거나 김비서가 요청한 업무(tasks.research)에서만. 원문 허용·거부 목록은 agy 전체 설정(`~/.gemini/antigravity-cli/settings.json`)에 `node scripts/agy-permissions.js`로 맞춘다. 검색어에 회사 내부 정보를 넣지 않는다.
 - C:\ThetaON-Office는 폐기된 이전 시도라 건드리지 않는다.
 - 세타로 소스코드 연결(송개발의 코드 작업)은 보류. 소스 위치가 정해지면 Phase를 추가한다.
 - 안내와 화면 문구는 비개발자 CEO 기준의 쉬운 한국어로 쓴다.
@@ -17,6 +18,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `src/company.js` — 직원 호출 창구, 사용량 장부(ai_usage), 업무당 호출 상한
 - `src/ai.js` — Claude·Antigravity CLI 호출기(CLI 사용법이 바뀌면 여기만 고친다)
 - `src/staff.js` — 직원 5명 명부와 페르소나
+- `src/sources.js` — 쫑전략 신뢰 사이트 목록·거부 주소·주소 검사기. 바꾸면 `node scripts/agy-permissions.js` 실행
 - `src/rules.js` — 금지·조건부 수치 목록(정본: C:\ThetaRO 위키, CEO 확인 2026-09-27)과 검사기
 - `src/memory.js` — 과거 기록 검색(pg_trgm/ILIKE)과 위키 index.md 후보 찾기
 - `src/pages.js`, `src/views.js`, `public/` — 업무 사이트와 메신저 화면
@@ -30,6 +32,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `npm start` — 서버 켜기(끄기 Ctrl + C)
 - `npm run backup` — 지금 백업. `node scripts/backup.js --test-restore`는 복원 시험까지
 - `node scripts/rules-test.js` — 금지 수치 검사 시험
+- `node scripts/research-test.js` — 쫑전략 외부 자료 조사 시험(검색만/대표님 켬/김비서 요청, 4101 가짜 서버)
 - `node scripts/trash-test.js` — 휴지통(삭제·되살리기) 시험(4101 가짜 서버, `$env:DB_NAME='thetaon_test'` 필요)
 - `node scripts/inspect.js [업무번호]` — 업무 상태·대화 훑어보기
 

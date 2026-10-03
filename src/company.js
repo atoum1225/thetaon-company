@@ -13,7 +13,7 @@ async function employee(nameOrKey) {
   return r.rows[0];
 }
 
-async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
+async function ask(who, { taskId = null, purpose, prompt, schema = null, web = 'off' }) {
   const emp = await employee(who);
   const def = EMPLOYEES.find((e) => e.key === emp.key);
   // 대표님 말씀에 답하는 일은 업무당 호출 상한에서 뺀다.
@@ -23,10 +23,11 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
       throw new AiError(`이 업무의 AI 호출이 ${MAX_CALLS_PER_TASK}회를 넘어 멈췄습니다. 사용량을 지키려는 안전장치입니다.`);
     }
   }
+  // web: 쫑전략 외부 자료 조사 방식(off/search/read, ai.js 참고). 다른 직원은 무시한다.
   // 응답이 멈추거나 형식이 깨지는 일시적 문제는 한 번만 자동으로 다시 시도한다.
   for (let attempt = 1; ; attempt++) {
     try {
-      return await askOnce(emp, def, { taskId, purpose, prompt, schema });
+      return await askOnce(emp, def, { taskId, purpose, prompt, schema, web });
     } catch (err) {
       if (!err.transient || attempt >= 2) throw err;
       console.error(`[다시 시도] ${emp.name} ${purpose}: ${safeMessage(err)}`);
@@ -34,17 +35,17 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null }) {
   }
 }
 
-async function askOnce(emp, def, { taskId, purpose, prompt, schema }) {
+async function askOnce(emp, def, { taskId, purpose, prompt, schema, web }) {
   const started = Date.now();
   bus.startWork({ taskId, who: emp.name, purpose, startedAt: started });
   try {
     let res;
     if (process.env.AI_MOCK === '1') {
-      res = await mock.respond({ emp, purpose, prompt, schema });
+      res = await mock.respond({ emp, purpose, prompt, schema, web });
     } else {
       const system = personaPrompt(def);
       res = emp.provider === 'gemini'
-        ? await callGemini({ system, prompt, model: emp.model, schema })
+        ? await callGemini({ system, prompt, model: emp.model, schema, web })
         : await callClaude({ system, prompt, model: emp.model, schema });
     }
     if (schema && !res.json) throw new AiError(`${emp.name}의 답을 정해진 형식으로 읽지 못했습니다.`, { transient: true });

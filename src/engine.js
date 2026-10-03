@@ -5,6 +5,7 @@ const { ask } = require('./company');
 const bus = require('./bus');
 const rules = require('./rules');
 const memory = require('./memory');
+const { isTrusted, hostOf, normalizeUrl } = require('./sources');
 
 const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언'];
 // 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
@@ -127,6 +128,49 @@ function cut(s, n) {
   return s.length > n ? s.slice(0, n) + '\n…(이하 생략)' : s;
 }
 
+// ───────── 외부 자료(쫑전략 조사) ─────────
+const SOURCES_SCHEMA = {
+  type: 'array',
+  items: {
+    type: 'object',
+    properties: { org: { type: 'string' }, title: { type: 'string' }, url: { type: 'string' }, date: { type: 'string' }, point: { type: 'string' } },
+    required: ['org', 'title', 'url', 'date', 'point'],
+  },
+};
+
+// 원문 열기는 대표님이 지시했거나 김비서가 요청한 업무에서만. 나머지는 검색만.
+const webMode = (t) => (t.research ? 'read' : 'search');
+
+const WEB_TASK = {
+  search: `신뢰 사이트 목록에서 이 업무와 관련된 정책·통계·시장 동향 자료를 검색해 근거로 쓴다(검색만, 원문은 열지 않는다).`,
+  read: `신뢰 사이트 목록에서 이 업무와 관련된 정책·통계·시장 동향 자료를 검색하고, 중요한 수치는 원문을 열어 확인한다.`,
+};
+const SOURCES_RULE = `sources에는 실제로 찾은 자료만 적는다(최대 5개, 없으면 빈 목록). org=기관, title=자료 제목, url=찾은 주소(모르면 기관 홈페이지), date=발표 시기, point=이 업무에 관련된 내용 한두 문장. 자료를 지어내지 않는다.`;
+
+// 찾은 자료를 저장하고, 메신저에 붙일 목록 글을 돌려준다.
+async function saveSources(taskId, meetingId, purpose, sources, used) {
+  const opened = (used?.opened || []).map(hostOf);
+  const lines = [];
+  for (const s of (sources || []).slice(0, 8)) {
+    const url = normalizeUrl(s.url);
+    const trusted = isTrusted(url);
+    const wasOpened = !!url && opened.includes(hostOf(url));
+    await query(
+      `INSERT INTO external_sources (task_id, meeting_id, purpose, org, title, url, pub_date, point, trusted, opened) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
+      [taskId, meetingId, purpose, s.org, s.title, url, s.date, s.point, trusted, wasOpened]
+    );
+    lines.push(`- ${s.org}, 「${s.title}」(${s.date || '시기 미확인'}) ${url}${trusted ? '' : ' [신뢰 목록 밖, 참고 제외 권장]'}${wasOpened ? ' [원문 확인함]' : ' [검색 요약, 원문 확인 전]'}\n  ${s.point}`);
+  }
+  return lines.length ? `\n\n참고한 외부 자료:\n${lines.join('\n')}` : '';
+}
+
+// 지금까지 이 업무에서 찾은 외부 자료(다음 발언·보고서에 넘긴다)
+async function sourcesText(taskId) {
+  const r = await query(`SELECT * FROM external_sources WHERE task_id=$1 AND trusted ORDER BY id`, [taskId]);
+  if (!r.rows.length) return '(없음)';
+  return r.rows.map((s) => `- ${s.org}, 「${s.title}」(${s.pub_date || '시기 미확인'}) ${s.url} ${s.opened ? '[원문 확인함]' : '[검색 요약, 원문 확인 전]'}: ${s.point}`).join('\n');
+}
+
 // ───────── 스키마 ─────────
 const S = {
   define: {
@@ -136,9 +180,15 @@ const S = {
       attendees: { type: 'array', items: { type: 'string', enum: STAFF }, minItems: 1 },
       references: { type: 'array', items: { type: 'string' } },
       conflicts: { type: 'array', items: { type: 'string' } },
+      research_needed: { type: 'boolean' }, research_reason: { type: 'string' },
       opening: { type: 'string' },
     },
-    required: ['title', 'goal', 'scope', 'deadline', 'attendees', 'references', 'conflicts', 'opening'],
+    required: ['title', 'goal', 'scope', 'deadline', 'attendees', 'references', 'conflicts', 'research_needed', 'research_reason', 'opening'],
+  },
+  advise_meeting: {
+    type: 'object',
+    properties: { advice: { type: 'string' }, sources: SOURCES_SCHEMA },
+    required: ['advice', 'sources'],
   },
   chair: {
     type: 'object',
@@ -165,8 +215,8 @@ const S = {
   },
   advise: {
     type: 'object',
-    properties: { advice: { type: 'string' }, risks: { type: 'array', items: { type: 'string' } } },
-    required: ['advice', 'risks'],
+    properties: { advice: { type: 'string' }, risks: { type: 'array', items: { type: 'string' } }, sources: SOURCES_SCHEMA },
+    required: ['advice', 'risks', 'sources'],
   },
   adopt: {
     type: 'object',
@@ -204,6 +254,7 @@ const STEPS = {
       `참고한 과거 기록과 위키 문서를 references에 적는다(예: "결정 #3", "위키: kepco-proposal"). 없으면 빈 목록.\n` +
       `이전 결정과 다른 방향이 필요해 보이면 conflicts에 적는다. 없으면 빈 목록.\n` +
       `지시에 마감이 없으면 deadline은 "미정(CEO 확인 필요)".\n` +
+      `쫑전략은 회의에서 신뢰 사이트(정부·공공·연구기관, 언론사, 대기업)를 검색해 외부 자료를 낸다. 정책·법규·공식 통계·시장 수치처럼 검색 요약만으로는 틀릴 위험이 커서 원문을 열어 확인해야 하는 업무면 research_needed=true, research_reason에 이유 한 문장. 아니면 false와 빈 문자열.\n` +
       `title은 20자 안팎의 업무 이름. opening은 회의를 여는 첫 발언(3~5문장, 참석자에게 무엇을 논의할지 말한다).`;
     const r = await ask('김비서', { taskId: t.id, purpose: 'define', prompt, schema: S.define });
     const d = r.json;
@@ -212,6 +263,12 @@ const STEPS = {
     d.memory = { records: records.map((x) => `${x.kind} #${x.id}`), wiki: wiki.map((w) => w.name) };
     await setTask(t.id, { title: d.title || t.title, definition: d, deadline: d.deadline, status: '회의중', step: 3 });
     await event(t.id, '과제 정의', '김비서', `${d.goal} / 참석: ${d.attendees.join(', ')}`);
+    // 대표님이 이미 켜거나 끈 업무(research_by='CEO')는 김비서가 바꾸지 않는다.
+    if (d.research_needed && !t.research && t.research_by !== 'CEO') {
+      await setTask(t.id, { research: true, research_by: '김비서', research_reason: d.research_reason || null });
+      await event(t.id, '원문 확인 요청', '김비서', d.research_reason || null);
+      await post(t.id, '시스템', `김비서가 쫑전략에게 신뢰 사이트 원문 확인을 요청했습니다. 이유: ${d.research_reason || '(없음)'}\n원하지 않으시면 업무 화면에서 "원문 확인 끄기"를 눌러 주세요.`, '시스템');
+    }
     if (d.conflicts?.length) {
       await post(t.id, '시스템', `이전 결정과 다를 수 있는 점이 있습니다. 승인 전에 확인해 주세요.\n- ${d.conflicts.join('\n- ')}`, '시스템');
     }
@@ -266,11 +323,18 @@ const STEPS = {
     }
 
     if (speaker === '쫑전략') {
+      // 회의마다 첫 라운드에서만 외부 자료를 찾고, 다음 라운드부터는 찾은 자료를 인용한다.
+      const web = round === 1 ? webMode(t) : 'off';
+      const task = web === 'off'
+        ? `앞에서 찾은 외부 자료(아래)가 있으면 인용하고, 새로 검색하지 않는다. sources는 빈 목록.\n[이 업무에서 찾은 외부 자료]\n${await sourcesText(t.id)}`
+        : `${WEB_TASK[web]}\n${SOURCES_RULE}`;
       const r = await ask('쫑전략', {
-        taskId: t.id, purpose: 'advise_meeting',
-        prompt: `${base}\n\n${await rules.rulesText()}\n\n[할 일]\n${round}라운드 조언자 발언. 논의에서 금지 수치나 조건 없는 수치가 쓰일 위험, 사업 리스크를 짚는다. 3~6문장. 결정하지 말고 권고로 말한다.`,
+        taskId: t.id, purpose: 'advise_meeting', schema: S.advise_meeting, web,
+        prompt: `${base}\n\n${await rules.rulesText()}\n\n[할 일]\n${round}라운드 조언자 발언. 논의에서 금지 수치나 조건 없는 수치가 쓰일 위험, 사업 리스크를 짚는다. ` +
+          `외부 자료가 있으면 근거로 들되, 회사 위키·결정과 다르면 다르다고만 알린다. advice는 3~6문장. 결정하지 말고 권고로 말한다.\n${task}`,
       });
-      await post(t.id, '쫑전략', r.text, '발언', m.id);
+      const list = web === 'off' ? '' : await saveSources(t.id, m.id, 'advise_meeting', r.json.sources, r.web);
+      await post(t.id, '쫑전략', `${r.json.advice}${list}`, '발언', m.id);
     } else {
       const r = await ask(speaker, {
         taskId: t.id, purpose: 'speak',
@@ -386,12 +450,16 @@ const STEPS = {
     const docs = latest.map((d) => `### ${d.title} v${d.version} (${d.employee_name}, 검수 ${d.review_result})\n${cut(d.body, 6000)}\n자동 검사: ${rules.hitsText(d.forbidden_hits)}`).join('\n\n');
 
     if (!pending.rows[0]) {
+      const web = webMode(t);
       const r = await ask('쫑전략', {
-        taskId: t.id, purpose: 'advise', schema: S.advise,
+        taskId: t.id, purpose: 'advise', schema: S.advise, web,
         prompt: `${defText(t)}\n\n${planText(m.assignment_plan)}\n\n${await rules.rulesText()}\n\n[산출물]\n${docs}\n\n` +
-          `[할 일]\n산출물 전체를 보고 금지 수치 기준과 리스크 관점에서 조언한다. advice는 조언 본문(5~12문장, 권고형), risks는 짧은 리스크 목록. 결정하지 않는다.`,
+          `[회의에서 찾은 외부 자료]\n${await sourcesText(t.id)}\n\n` +
+          `[할 일]\n산출물 전체를 보고 금지 수치 기준과 리스크 관점에서 조언한다. advice는 조언 본문(5~12문장, 권고형), risks는 짧은 리스크 목록. 결정하지 않는다.\n` +
+          `산출물에 나온 외부 사실·시장 수치·정책 내용을 신뢰 사이트에서 확인해 맞는지, 최신인지 짚는다. ${WEB_TASK[web]}\n${SOURCES_RULE}`,
       });
-      const content = `${r.json.advice}${r.json.risks?.length ? `\n\n리스크:\n- ${r.json.risks.join('\n- ')}` : ''}`;
+      const list = await saveSources(t.id, null, 'advise', r.json.sources, r.web);
+      const content = `${r.json.advice}${r.json.risks?.length ? `\n\n리스크:\n- ${r.json.risks.join('\n- ')}` : ''}${list}`;
       await query('INSERT INTO advice (task_id, content) VALUES ($1,$2)', [t.id, content]);
       await post(t.id, '쫑전략', content);
       return;
@@ -419,7 +487,9 @@ const STEPS = {
       taskId: t.id, purpose: 'final', schema: S.final,
       prompt: `${defText(t)}\n\n${planText(m.assignment_plan)}\n\n[대표님 말씀]\n${await ceoTalk(t.id)}\n\n[반려 ${t.reject_count}회, 재작업 ${t.rework_count}회]\n\n` +
         `[산출물]\n${docs}\n\n[쫑전략 조언(참고 의견)]\n${a?.content || '(없음)'}\n반영 여부: ${a?.adopted || '-'} / 이유: ${a?.reason || '-'}\n\n` +
-        `${await rules.rulesText()}\n\n[할 일]\nCEO에게 올릴 최종 보고서를 마크다운으로 쓴다. 순서: 요약(3~5문장), 결정사항, 산출물별 결과, 검수 결과, 전략 조언과 반영 여부·이유, 남은 과제와 대표님이 확인하실 것.\n` +
+        `[쫑전략이 찾은 외부 자료]\n${await sourcesText(t.id)}\n\n` +
+        `${await rules.rulesText()}\n\n[할 일]\nCEO에게 올릴 최종 보고서를 마크다운으로 쓴다. 순서: 요약(3~5문장), 결정사항, 산출물별 결과, 검수 결과, 전략 조언과 반영 여부·이유, 외부 참고 자료, 남은 과제와 대표님이 확인하실 것.\n` +
+        `외부 참고 자료는 위 목록에서 보고서에 실제로 쓰인 것만 기관·제목·시기·주소와 [원문 확인함]/[원문 확인 전] 표시를 붙여 적는다. 없으면 이 절은 뺀다. 원문 확인 전 수치를 대외 문서에 쓰려면 원문 확인이 먼저라고 남은 과제에 적는다.\n` +
         `산출물 본문을 그대로 다 옮기지 말고 요점만. 금지 수치는 쓰지 않는다.\n` +
         `이 보고서로 이 업무는 끝난다. 검수를 통과하지 못한 산출물은 "미완료"로 적고, 마저 하려면 대표님의 후속 업무 지시가 필요하다고 쓴다. "재작업 지시함", "재검수 예정"처럼 이 업무 안에서 더 진행될 것처럼 쓰지 않는다.\nstaff_notes에는 다음 업무에 이어 쓸 직원별 메모를 적는다(참여한 직원만, 한두 문장).`,
     });
@@ -550,9 +620,10 @@ async function replyOnly(id) {
 }
 
 // ───────── 화면에서 부르는 동작 ─────────
-async function createTask(instruction) {
+async function createTask(instruction, { research = false } = {}) {
   const title = instruction.replace(/\s+/g, ' ').slice(0, 40);
-  const r = await query('INSERT INTO tasks (title, instruction) VALUES ($1,$2) RETURNING id', [title, instruction]);
+  const r = await query('INSERT INTO tasks (title, instruction, research, research_by) VALUES ($1,$2,$3,$4) RETURNING id',
+    [title, instruction, research, research ? 'CEO' : null]);
   bus.emit('task', { id: r.rows[0].id, status: '접수', title, step: 1 });
   schedule(r.rows[0].id);
   return r.rows[0].id;
@@ -601,6 +672,19 @@ async function resume(id, by = 'CEO') {
   await event(id, '다시 진행', by);
   await post(id, '시스템', by === 'CEO' ? '다시 진행합니다.' : '사용량 한도 대기 후 자동으로 다시 시도합니다.', '시스템');
   schedule(id);
+}
+
+// 대표님이 쫑전략의 원문 확인을 켜거나 끈다. 다음 쫑전략 차례부터 적용된다.
+async function setResearch(id, on) {
+  const t = await getTask(id);
+  if (!t || ['완료', '삭제됨'].includes(t.status)) throw new Error('끝났거나 휴지통에 있는 업무는 바꿀 수 없습니다.');
+  await query(`UPDATE tasks SET research=$2, research_by='CEO', research_reason=$3, updated_at=now() WHERE id=$1`,
+    [id, on, on ? '대표님 지시' : null]);
+  await event(id, on ? '원문 확인 켬' : '원문 확인 끔', 'CEO');
+  bus.emit('task', { id, status: t.status, title: t.title, step: t.step });
+  await post(id, '시스템', on
+    ? '대표님 지시로 쫑전략이 신뢰 사이트 원문까지 열어 확인합니다(다음 쫑전략 차례부터).'
+    : '대표님 지시로 쫑전략은 검색만 하고 원문은 열지 않습니다(다음 쫑전략 차례부터).', '시스템');
 }
 
 // 휴지통으로 옮긴다. DB에는 남고 되살릴 수 있다.
@@ -674,4 +758,4 @@ function state() {
   return { busy, current, queued: queue.length };
 }
 
-module.exports = { createTask, approve, reject, pause, resume, trash, restore, ceoSay, start, state, schedule, ACTIVE, PAUSABLE, DELETABLE };
+module.exports = { createTask, approve, reject, pause, resume, trash, restore, setResearch, ceoSay, start, state, schedule, ACTIVE, PAUSABLE, DELETABLE };

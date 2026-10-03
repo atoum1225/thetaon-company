@@ -7,6 +7,7 @@ const memory = require('./memory');
 const rules = require('./rules');
 const wiki = require('./wiki');
 const report = require('./report');
+const sources = require('./sources');
 
 const router = express.Router();
 const STEP_NAMES = ['', '① 접수', '② 과제 정의', '③ 회의 소집', '④ 토론', '⑤ 회의록·배정안', '⑥ CEO 승인 대기', '⑦ 담당자 수행', '⑧ 김비서 검수', '⑨ 전략 조언', '⑩ 최종 보고', '완료'];
@@ -124,6 +125,7 @@ router.get('/', async (req, res) => {
           <form method="post" action="/tasks">
             <textarea name="instruction" id="instruction" placeholder="무엇을 할지, 결과물은 무엇인지, 마감은 언제인지 적어 주세요." required></textarea>
             <div class="chips">${EXAMPLES.map((e) => `<span class="chip" data-fill="${esc(e)}">${esc(e.length > 28 ? e.slice(0, 27) + '…' : e)}</span>`).join('')}</div>
+            <label class="check"><input type="checkbox" name="research" value="1"> 쫑전략이 신뢰 사이트 원문까지 열어 확인 <span class="muted">(정확하지만 회의가 더 걸립니다. 끄면 검색만 합니다. 김비서가 필요하다고 보면 켤 수도 있습니다)</span></label>
             <div class="form-foot"><span class="muted">김비서가 과제를 정리하고 회의를 연 뒤, 배정안이 나오면 결재를 요청드립니다.</span><button>${icon('send', 16)}지시하기</button></div>
           </form>
         </div>
@@ -200,7 +202,7 @@ router.get('/tasks', async (req, res) => {
 router.post('/tasks', async (req, res) => {
   const instruction = String(req.body.instruction || '').trim();
   if (!instruction) return back(res, '/', '지시 내용을 입력해 주세요.');
-  const id = await engine.createTask(instruction);
+  const id = await engine.createTask(instruction, { research: req.body.research === '1' });
   res.redirect(`/tasks/${id}`);
 });
 
@@ -215,6 +217,7 @@ router.get('/tasks/:id', async (req, res) => {
   const events = (await query('SELECT * FROM task_events WHERE task_id=$1 ORDER BY id', [id])).rows;
   const decisions = (await query('SELECT * FROM decisions WHERE task_id=$1 ORDER BY id', [id])).rows;
   const usage = (await query('SELECT count(*)::int AS n, count(*) FILTER (WHERE NOT ok)::int AS fails FROM ai_usage WHERE task_id=$1', [id])).rows[0];
+  const sources = (await query('SELECT * FROM external_sources WHERE task_id=$1 ORDER BY id', [id])).rows;
   const d = t.definition || {};
   const last = meetings[meetings.length - 1];
 
@@ -262,6 +265,7 @@ router.get('/tasks/:id', async (req, res) => {
     <div class="card">
       <div class="steps">${stepsHtml(t)}</div>
       <p class="muted">마감: ${esc(t.deadline || d.deadline || '미정')} · 반려 ${t.reject_count}회 · 재작업 ${t.rework_count}회 · AI 호출 ${usage.n}회${usage.fails ? ` (실패 ${usage.fails})` : ''} · 지시 ${fmt(t.created_at)}</p>
+      ${researchHtml(t)}
       ${t.error ? `<p class="bad">${esc(t.error)}</p>` : ''}
       ${controls.join(' ')}
     </div>
@@ -283,12 +287,34 @@ router.get('/tasks/:id', async (req, res) => {
         ${decisions.length ? `<div class="card"><h2 style="margin-top:0">확정된 결정사항</h2><ol>${decisions.map((x) => `<li>${esc(x.content)} <span class="muted">(${esc(x.decided_by)})</span></li>`).join('')}</ol></div>` : ''}
         <div class="card"><h2 style="margin-top:0">산출물</h2>${delivHtml}</div>
         <div class="card"><h2 style="margin-top:0">쫑전략 조언</h2>${adviceHtml}</div>
+        <div class="card"><h2 style="margin-top:0">외부 자료 <span class="muted" style="font-size:14px;font-weight:400">쫑전략 조사 · 신뢰 사이트</span></h2>${sourcesHtml(sources)}</div>
         <div class="card"><h2 style="margin-top:0">진행 기록</h2><table>${events.map((e) => `<tr><td class="muted">${fmt(e.created_at)}</td><td>${esc(e.kind)}</td><td>${esc(e.actor)}</td><td>${esc(e.detail || '')}</td></tr>`).join('')}</table></div>
       </div>
       <div>${chatPanel(id, `업무 #${id}`, trashed)}</div>
     </div>
   `, { active: '/tasks' }));
 });
+
+// 쫑전략이 원문까지 여는지(대표님 지시·김비서 요청) 표시와 켜기/끄기 버튼
+function researchHtml(t) {
+  const who = t.research_by === 'CEO' ? '대표님 지시' : t.research_by === '김비서' ? `김비서 요청${t.research_reason ? `: ${t.research_reason}` : ''}` : '';
+  const state = t.research ? `<b>원문까지 확인</b>${who ? ` (${esc(who)})` : ''}` : `검색만${t.research_by === 'CEO' ? ' (대표님 지시)' : ''}`;
+  const btn = ['완료', '삭제됨'].includes(t.status) ? ''
+    : `<form method="post" action="/tasks/${t.id}/research" class="inline"><input type="hidden" name="on" value="${t.research ? '0' : '1'}">
+       <button class="gray sm">${t.research ? '원문 확인 끄기' : '원문 확인 켜기'}</button></form>`;
+  return `<p class="muted">쫑전략 외부 자료 조사: ${state} ${btn}</p>`;
+}
+
+function sourcesHtml(rows) {
+  if (!rows.length) return '<p class="muted">아직 찾은 외부 자료가 없습니다. 쫑전략이 회의 첫 발언과 산출물 조언 때 찾습니다.</p>';
+  const link = (u) => (/^https?:\/\//i.test(u) ? `<a href="${esc(u)}" target="_blank" rel="noopener noreferrer">${esc(u)}</a>` : esc(u || '-'));
+  const when = (p) => (p === 'advise' ? '산출물 조언' : '회의');
+  return `<p class="muted">검색 요약을 옮긴 자료는 틀릴 수 있습니다. 대외 문서에 쓰기 전에 원문을 확인해 주세요.</p>
+    <table><tr><th>기관·자료</th><th>내용</th><th>확인</th></tr>${rows.map((s) => `<tr${s.trusted ? '' : ' class="muted"'}>
+      <td><b>${esc(s.org || '')}</b><br>${esc(s.title || '')} <span class="muted">${esc(s.pub_date || '')}</span><br><small>${link(s.url)}</small></td>
+      <td>${esc(s.point || '')}</td>
+      <td><small>${s.opened ? '<span class="ok">원문 확인함</span>' : '원문 확인 전'}<br>${s.trusted ? '' : '<span class="bad">신뢰 목록 밖</span><br>'}${when(s.purpose)} · ${fmt(s.created_at)}</small></td></tr>`).join('')}</table>`;
+}
 
 function wikiHtml(t) {
   const id = t.id;
@@ -349,6 +375,12 @@ router.post('/tasks/:id/pause', async (req, res) => {
 router.post('/tasks/:id/resume', async (req, res) => {
   const id = Number(req.params.id);
   try { await engine.resume(id); back(res, `/tasks/${id}`, '다시 진행합니다.'); }
+  catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
+});
+router.post('/tasks/:id/research', async (req, res) => {
+  const id = Number(req.params.id);
+  const on = req.body.on === '1';
+  try { await engine.setResearch(id, on); back(res, `/tasks/${id}`, on ? '쫑전략 원문 확인을 켰습니다.' : '쫑전략 원문 확인을 껐습니다. 검색만 합니다.'); }
   catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
 });
 router.post('/tasks/:id/delete', async (req, res) => {
@@ -446,7 +478,10 @@ router.get('/staff', async (req, res) => {
     <table><tr><th>이름</th><th>담당</th><th>주요 산출물</th><th>모델</th><th>AI 호출</th></tr>${rows}</table>
     <p class="muted">쫑전략은 조언만 합니다. 업무 배정·검수 판정·결정에 관여하지 않고, 조언은 참고 의견으로만 기록됩니다.</p>
     <h2>직원별 작업 메모</h2><table>${notes.rows.map((n) => `<tr><td>${esc(n.name)}</td><td>${esc(n.body)}</td><td><a href="/tasks/${n.task_id}">#${n.task_id}</a></td><td class="muted">${fmt(n.created_at)}</td></tr>`).join('') || '<tr><td class="muted">없음</td></tr>'}</table>
-    <h2>금지 수치 점검표</h2>${await rulesHtml()}`, { active: '/staff' }));
+    <h2>금지 수치 점검표</h2>${await rulesHtml()}
+    <h2>쫑전략 신뢰 사이트 목록</h2>
+    <p class="muted">쫑전략은 이 사이트들에서만 외부 자료를 찾습니다. 도메인 아래 주소도 포함됩니다(go.kr이면 모든 정부 부처). 원문 열기는 대표님이 지시하시거나 김비서가 요청한 업무에서만 하고, 목록 밖 사이트는 agy가 막습니다. 목록은 src/sources.js에 있습니다.</p>
+    <table><tr><th>구분</th><th>사이트</th></tr>${sources.TRUSTED.map((g) => `<tr><td>${esc(g.group)}</td><td>${esc(g.domains.join(', '))}</td></tr>`).join('')}</table>`, { active: '/staff' }));
 });
 
 async function rulesHtml() {

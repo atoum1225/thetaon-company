@@ -150,6 +150,27 @@ ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_draft JSONB;
 ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_path TEXT;
 ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_saved_at TIMESTAMPTZ;
 ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+-- 쫑전략이 신뢰 사이트 원문까지 열어 볼 수 있는 업무인지(대표님 지시 또는 김비서 요청)
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS research BOOLEAN NOT NULL DEFAULT false;
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS research_by TEXT;
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS research_reason TEXT;
+
+-- 쫑전략이 찾은 외부 자료(검색 요약이라 원문 확인 전일 수 있음)
+CREATE TABLE IF NOT EXISTS external_sources (
+  id          SERIAL PRIMARY KEY,
+  task_id     INT NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  meeting_id  INT REFERENCES meetings(id) ON DELETE SET NULL,
+  purpose     TEXT NOT NULL,
+  org         TEXT,
+  title       TEXT,
+  url         TEXT,
+  pub_date    TEXT,
+  point       TEXT,
+  trusted     BOOLEAN NOT NULL DEFAULT false,
+  opened      BOOLEAN NOT NULL DEFAULT false,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_sources_task ON external_sources (task_id, id);
 -- 휴지통(삭제됨) 상태를 기존 DB에도 허용한다.
 ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
 ALTER TABLE tasks ADD CONSTRAINT tasks_status_check

@@ -19,7 +19,7 @@
         │
    업무 진행기(src/engine.js) ── 대기열에서 한 번에 AI 호출 하나
         ├─ Claude Code CLI `claude -p` (김비서·황기획·송개발·서영업, 모델 sonnet, 위키 읽기 도구만)
-        ├─ Antigravity CLI `agy` (쫑전략, gemini-3.1-pro-high, plan 모드, 도구 사용 안 함)
+        ├─ Antigravity CLI `agy` (쫑전략, gemini-3.1-pro-high, plan 모드, 신뢰 사이트 웹 검색·원문 열기만)
         ├─ PostgreSQL 18 (공유 기억)
         └─ C:\ThetaRO 위키 (읽기 전용 참고, 최종 보고서 저장만 CEO 버튼으로)
 ```
@@ -36,9 +36,10 @@ employees(직원·모델), tasks(지시·상태·단계·정의 JSON·최종 보
 대시보드(현황 타일·업무 지시·결재함·진행 중·완료 보고·직원 현황·일반 대화), 업무함(필터 탭·진행 막대), 업무 상세(단계 표시·승인/반려·회의록·산출물·조언·최종 보고서 HTML·위키 저장·메신저), 전체 메신저, 과거 업무 검색, 직원·규칙(모델 변경·금지 수치표), AI 사용량. 화면의 data-live 영역은 실시간 부분 갱신.
 
 ## CEO가 정한 것
-- 구독 로그인만 사용(Claude Pro, Google AI Pro). API 키 과금 금지. 외부 접속 4곳(Anthropic, Google, npm, GitHub 비공개) 허용.
+- 구독 로그인만 사용(Claude Pro, Google AI Pro). API 키 과금 금지. 외부 접속 4곳(Anthropic, Google, npm, GitHub 비공개) 허용. 추가로 쫑전략 원문 열기 때만 신뢰 사이트 목록(2026-10-03).
 - 쫑전략은 Antigravity CLI(agy)로 동작. Gemini CLI는 개인 계정 지원 종료(2026-06-18)로 사용 불가.
 - 쫑전략은 김종배 이사(CIO, 쫑2) 관점을 참고한 AI 조언자. 조언만 하고 결정하지 않음. 화면에 "AI 조언"으로 표시.
+- 쫑전략 외부 자료 조사(2026-10-03): 정부·공공기관, 연구기관, 언론사, 대기업 등 신뢰 사이트(`src/sources.js`)만. 회의마다 1라운드 첫 발언과 ⑨ 산출물 조언 때 검색(2라운드부터는 찾은 자료 인용). 원문 열기는 대표님이 지시(업무 지시 체크박스·업무 화면 켜기/끄기)하거나 김비서가 ② 과제 정의에서 요청한 업무만. 대표님이 켜거나 끈 업무는 김비서가 바꾸지 않음. 찾은 자료는 external_sources 표, 업무 화면 "외부 자료" 카드, 최종 보고서 "외부 참고 자료" 절에 [원문 확인함/원문 확인 전]으로 남김.
 - C:\ThetaRO 위키는 AI가 읽기만 함. 위키 저장은 CEO가 버튼을 눌렀을 때 최종 보고서를 그대로(AI 재작성 없이) `projects/thetaon-hq-task-N-report.md`로 저장.
 - 메신저는 사이트에 통합. 세타로 소스코드 연결은 "시기상조, 검토 안 함"(2026-09-28) — 다시 꺼내지 않는다.
 - C:\ThetaON-Office(옛 API 키 방식)는 폐기, 건드리지 않음.
@@ -59,6 +60,9 @@ employees(직원·모델), tasks(지시·상태·단계·정의 JSON·최종 보
 - Claude Pro로는 5시간에 업무 2~3건이 현실적(검수·산출물 호출이 1~2분씩).
 - 확인 스크립트가 잘못 끝나 "멈췄다"고 오판한 적 있음 → 상태를 볼 때는 `node scripts/inspect.js N --timeline`의 시각을 꼭 확인.
 - 이 폴더에서는 파일 삭제(Remove-Item, git rm)가 하네스에 막힌다.
+- agy 비대화(-p) 모드: search_web은 허락 없이 됨. read_url_content·run_command는 settings.json permissions.allow에 없으면 자동 거부되고, 하나라도 거부되면 답 전체가 빈 칸 → ai.js가 경고를 붙여 한 번 다시 묻는다. 권한은 전체 설정 파일 하나뿐(프로젝트별 설정 없음).
+- agy는 검색 결과의 Google 중계 주소(vertexaisearch.cloud.google.com)를 원문으로 열려 한다. 아무 사이트로나 넘어갈 수 있어 deny로 막았다(cloud.google.com은 허용 목록에서 뺌). ai.js는 열린 주소가 목록 밖이면 답을 버린다.
+- 원문 열기 호출은 2~4분 걸림(시험 133·251초) → 원문 모드만 시간 제한 10분.
 
 ## 남은 일·후보
 - 위키에서 확인 필요(업무 #2~#4 보고서에서 나옴): −22.7% 측정 조건이 문서마다 다름(6회 반복 vs 3회·512토큰 통제), KT 카탈로그 3쪽 "KT 마진 미포함" 문구 누락, 대외비 각주 관련 결정 #9 정리.
