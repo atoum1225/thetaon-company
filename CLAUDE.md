@@ -30,6 +30,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `npm start` — 서버 켜기(끄기 Ctrl + C)
 - `npm run backup` — 지금 백업. `node scripts/backup.js --test-restore`는 복원 시험까지
 - `node scripts/rules-test.js` — 금지 수치 검사 시험
+- `node scripts/trash-test.js` — 휴지통(삭제·되살리기) 시험(4101 가짜 서버, `$env:DB_NAME='thetaon_test'` 필요)
 - `node scripts/inspect.js [업무번호]` — 업무 상태·대화 훑어보기
 
 ## 시험 방법

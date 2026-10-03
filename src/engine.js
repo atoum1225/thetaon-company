@@ -10,6 +10,8 @@ const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언']
 // 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
 const PAUSABLE = [...ACTIVE, '승인대기', '한도대기'];
 const RESUMABLE = ['일시정지', '한도대기', '실패'];
+// 대표님이 휴지통으로 옮길 수 있는 상태("확인 필요" 묶음과 같음)
+const DELETABLE = ['일시정지', '한도대기', '실패'];
 // 짧은 재개 지시만 알아듣는다("다시 진행", "재개", "계속 진행해"). 긴 문장 속 "계속"은 일반 지시로 본다.
 const RESUME_RE = /^\s*(?:다시\s*진행|재개|계속\s*진행)[\s\S]{0,10}$/;
 const STAFF = ['황기획', '송개발', '서영업'];
@@ -27,8 +29,10 @@ async function getTask(id) {
 // 다음에 이어갈 상태로만 기억해 둔다.
 async function setTask(id, fields, force = false) {
   fields = { ...fields };
+  const cur = await query('SELECT status FROM tasks WHERE id=$1', [id]);
+  // 휴지통에 들어간 업무는 진행 중이던 호출 결과나 실패 처리로 되살아나지 않게 아무것도 바꾸지 않는다.
+  if (cur.rows[0]?.status === '삭제됨') return getTask(id);
   if (!force && fields.status && fields.status !== '일시정지') {
-    const cur = await query('SELECT status FROM tasks WHERE id=$1', [id]);
     if (cur.rows[0]?.status === '일시정지') {
       fields.paused_status = fields.status;
       delete fields.status;
@@ -459,7 +463,7 @@ async function replyGeneral() {
   const r = await query(`SELECT * FROM messages WHERE task_id IS NULL AND kind='CEO' AND handled=false ORDER BY id`);
   if (!r.rows.length) return;
   const recent = await query(`SELECT speaker, kind, body FROM messages WHERE task_id IS NULL ORDER BY id DESC LIMIT 20`);
-  const tasks = await query(`SELECT id, title, status FROM tasks ORDER BY id DESC LIMIT 10`);
+  const tasks = await query(`SELECT id, title, status FROM tasks WHERE status <> '삭제됨' ORDER BY id DESC LIMIT 10`);
   const rr = await ask('김비서', {
     purpose: 'reply_ceo',
     prompt: `[최근 업무]\n${tasks.rows.map((x) => `#${x.id} ${x.title} (${x.status})`).join('\n') || '(없음)'}\n\n[일반 대화]\n${recent.rows.reverse().map((m) => `${m.kind === 'CEO' ? 'CEO(대표님)' : m.speaker}: ${m.body}`).join('\n')}\n\n` +
@@ -517,7 +521,7 @@ async function runTask(id) {
     let t = await getTask(id);
     if (!t) return;
     if (!ACTIVE.includes(t.status)) {
-      if (!['한도대기', '실패'].includes(t.status)) await replyOnly(id);
+      if (!['한도대기', '실패', '삭제됨'].includes(t.status)) await replyOnly(id);
       return;
     }
     try {
@@ -536,7 +540,7 @@ async function runTask(id) {
 
 async function replyOnly(id) {
   const t = await getTask(id);
-  if (!t) return;
+  if (!t || t.status === '삭제됨') return;
   if (ACTIVE.includes(t.status)) return runTask(id);
   try {
     await handleInterrupts(t);
@@ -599,9 +603,28 @@ async function resume(id, by = 'CEO') {
   schedule(id);
 }
 
+// 휴지통으로 옮긴다. DB에는 남고 되살릴 수 있다.
+async function trash(id) {
+  const t = await getTask(id);
+  if (!t || !DELETABLE.includes(t.status)) throw new Error('일시정지·한도대기·실패 상태인 업무만 지울 수 있습니다.');
+  await query(`UPDATE tasks SET status='삭제됨', deleted_at=now(), updated_at=now() WHERE id=$1`, [id]);
+  await event(id, '휴지통으로 이동', 'CEO');
+  bus.emit('task', { id, status: '삭제됨', title: t.title, step: t.step });
+}
+
+// 휴지통에서 되살리면 일시정지 상태가 된다. paused_status가 남아 있어 "다시 진행"으로 원래 단계부터 이어진다.
+async function restore(id) {
+  const t = await getTask(id);
+  if (!t || t.status !== '삭제됨') throw new Error('휴지통에 있는 업무가 아닙니다.');
+  await query(`UPDATE tasks SET status='일시정지', deleted_at=NULL, updated_at=now() WHERE id=$1`, [id]);
+  await event(id, '휴지통에서 되살림', 'CEO');
+  bus.emit('task', { id, status: '일시정지', title: t.title, step: t.step });
+}
+
 async function ceoSay(taskId, body) {
   const t = taskId ? await getTask(taskId) : null;
   if (taskId && !t) throw new Error(`업무 #${taskId}을 찾을 수 없습니다.`);
+  if (t && t.status === '삭제됨') throw new Error('휴지통에 있는 업무입니다. 되살린 뒤 말씀해 주세요.');
   let meetingId = null;
   if (t && t.status === '회의중') meetingId = (await latestMeeting(taskId))?.id || null;
   const r = await query(
@@ -651,4 +674,4 @@ function state() {
   return { busy, current, queued: queue.length };
 }
 
-module.exports = { createTask, approve, reject, pause, resume, ceoSay, start, state, schedule, ACTIVE, PAUSABLE };
+module.exports = { createTask, approve, reject, pause, resume, trash, restore, ceoSay, start, state, schedule, ACTIVE, PAUSABLE, DELETABLE };

@@ -88,6 +88,7 @@ button:hover, .btn:hover { filter: brightness(1.07); text-decoration: none; }
 button.gray, .btn.gray { background: #eef2f7; color: var(--ink2); }
 button.red { background: var(--bad); } button.green { background: var(--ok); }
 button:disabled { opacity: .5; cursor: default; }
+button.sm { padding: 4px 10px; font-size: 13px; border-radius: 7px; }
 pre.doc { white-space: pre-wrap; font-family: inherit; margin: 0; line-height: 1.7; }
 .row { display: flex; gap: 18px; } .row > * { flex: 1; min-width: 0; }
 .row.wide > :first-child { flex: 3; } .row.wide > :last-child { flex: 2; min-width: 340px; }

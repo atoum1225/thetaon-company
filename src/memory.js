@@ -33,6 +33,7 @@ async function searchRecords(text, { excludeTaskId = null, limit = 15 } = {}) {
             (SELECT count(*) FROM unnest($1::text[]) k WHERE src.text ILIKE k)::int AS score
      FROM src
      WHERE text ILIKE ANY($1::text[]) AND ($2::int IS NULL OR task_id IS DISTINCT FROM $2::int)
+       AND NOT EXISTS (SELECT 1 FROM tasks x WHERE x.id = src.task_id AND x.status = '삭제됨')
      ORDER BY score DESC, created_at DESC NULLS LAST
      LIMIT $3`,
     [likes, excludeTaskId, limit]

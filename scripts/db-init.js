@@ -25,7 +25,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   title         TEXT NOT NULL,
   instruction   TEXT NOT NULL,
   status        TEXT NOT NULL DEFAULT '접수'
-                CHECK (status IN ('접수','회의중','승인대기','수행중','검수중','전략조언','완료','일시정지','한도대기','실패')),
+                CHECK (status IN ('접수','회의중','승인대기','수행중','검수중','전략조언','완료','일시정지','한도대기','실패','삭제됨')),
   step          INT  NOT NULL DEFAULT 1,
   paused_status TEXT,
   definition    JSONB,
@@ -149,6 +149,11 @@ ALTER TABLE deliverables ADD COLUMN IF NOT EXISTS assignment_idx INT NOT NULL DE
 ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_draft JSONB;
 ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_path TEXT;
 ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS wiki_saved_at TIMESTAMPTZ;
+ALTER TABLE tasks        ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMPTZ;
+-- 휴지통(삭제됨) 상태를 기존 DB에도 허용한다.
+ALTER TABLE tasks DROP CONSTRAINT IF EXISTS tasks_status_check;
+ALTER TABLE tasks ADD CONSTRAINT tasks_status_check
+  CHECK (status IN ('접수','회의중','승인대기','수행중','검수중','전략조언','완료','일시정지','한도대기','실패','삭제됨'));
 
 CREATE INDEX IF NOT EXISTS idx_tasks_trgm     ON tasks        USING gin ((title || ' ' || instruction) gin_trgm_ops);
 CREATE INDEX IF NOT EXISTS idx_decisions_trgm  ON decisions    USING gin (content gin_trgm_ops);

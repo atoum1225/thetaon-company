@@ -18,23 +18,28 @@ const doc = (s) => `<pre class="doc">${esc(s)}</pre>`;
 const back = (res, url, msg) => res.redirect(`${url}${url.includes('?') ? '&' : '?'}msg=${encodeURIComponent(msg)}`);
 const notice = (req) => (req.query.msg ? `<div class="card notice">${esc(req.query.msg)}</div>` : '');
 
-function chatPanel(taskId, title) {
+function chatPanel(taskId, title, trashed = false) {
   return `
   <div class="card chat" data-task="${taskId ?? ''}">
     <div class="chat-head">${icon('chat', 18)}메신저 <span class="muted">${esc(title)}</span> <span class="live muted">연결 중…</span></div>
     <div class="chat-log"></div>
     <div class="working" data-task="${taskId ?? ''}" hidden></div>
+    ${trashed ? '<p class="muted">휴지통에 있는 업무라 말을 걸 수 없습니다. 되살리면 다시 대화할 수 있습니다.</p>' : `
     <form class="chat-form">
       <input type="text" name="body" placeholder="대표님 말씀 (멈추려면 '멈춰', 이어서는 '다시 진행')" autocomplete="off">
       <button>${icon('send', 16)}보내기</button>
-    </form>
+    </form>`}
   </div>`;
 }
+
+const DELETE_CONFIRM = `onsubmit="return confirm('이 업무를 휴지통으로 옮길까요?\\n휴지통에서 언제든 되살릴 수 있습니다.')"`;
+const deleteForm = (id, cls = '') => `<form method="post" action="/tasks/${id}/delete" class="inline" ${DELETE_CONFIRM}><button class="red ${cls}">삭제</button></form>`;
+const restoreForm = (id, cls = '') => `<form method="post" action="/tasks/${id}/restore" class="inline"><button class="green ${cls}">되살리기</button></form>`;
 
 // 진행 단계를 막대로(⑥ 승인 대기까지가 절반쯤)
 function progressBar(t) {
   const pct = t.status === '완료' ? 100 : Math.round(((Math.min(t.step, 10) - 1) / 10) * 100);
-  const cls = t.status === '완료' ? 'done' : ['일시정지', '실패', '한도대기'].includes(t.status) ? 'stop' : '';
+  const cls = t.status === '완료' ? 'done' : ['일시정지', '실패', '한도대기', '삭제됨'].includes(t.status) ? 'stop' : '';
   return `<div class="progress ${cls}" title="${esc(STEP_NAMES[t.step] || '')}"><i style="width:${Math.max(pct, 4)}%"></i></div>`;
 }
 
@@ -55,7 +60,8 @@ async function statusCounts() {
     active: n('접수', '회의중', '수행중', '검수중', '전략조언'),
     today: c.rows.reduce((a, x) => a + x.today, 0),
     trouble: n('일시정지', '한도대기', '실패'),
-    all: c.rows.reduce((a, x) => a + x.n, 0),
+    trash: n('삭제됨'),
+    all: c.rows.reduce((a, x) => a + x.n, 0) - n('삭제됨'),
     done: n('완료'),
     by,
   };
@@ -79,7 +85,7 @@ router.get('/', async (req, res) => {
       (SELECT jsonb_array_length(assignment_plan->'assignments') FROM meetings m WHERE m.task_id=t.id ORDER BY attempt DESC LIMIT 1) AS n
     FROM tasks t WHERE status='승인대기' ORDER BY updated_at LIMIT 6`)).rows;
   const active = (await query(`SELECT id, title, status, step, updated_at FROM tasks
-    WHERE status NOT IN ('완료','승인대기') ORDER BY updated_at DESC LIMIT 6`)).rows;
+    WHERE status NOT IN ('완료','승인대기','삭제됨') ORDER BY updated_at DESC LIMIT 6`)).rows;
   const done = (await query(`SELECT id, title, completed_at, wiki_path FROM tasks WHERE status='완료' ORDER BY completed_at DESC LIMIT 5`)).rows;
   const staff = (await query(`SELECT e.name, e.title, e.provider, e.model,
       (SELECT count(*)::int FROM ai_usage u WHERE u.employee_id=e.id AND u.created_at >= date_trunc('day', now())) AS today
@@ -161,11 +167,11 @@ router.get('/', async (req, res) => {
 router.get('/tasks', async (req, res) => {
   const status = String(req.query.status || '');
   const group = String(req.query.group || '');
-  const GROUPS = { active: ['접수', '회의중', '수행중', '검수중', '전략조언'], trouble: ['일시정지', '한도대기', '실패'] };
+  const GROUPS = { active: ['접수', '회의중', '수행중', '검수중', '전략조언'], trouble: ['일시정지', '한도대기', '실패'], trash: ['삭제됨'] };
   const list = GROUPS[group] || (status ? [status] : null);
   const r = await query(
-    `SELECT id, title, status, step, deadline, reject_count, rework_count, created_at, updated_at FROM tasks
-     WHERE ($1::text[] IS NULL OR status = ANY($1)) ORDER BY id DESC LIMIT 200`, [list]);
+    `SELECT id, title, status, step, deadline, reject_count, rework_count, created_at, updated_at, deleted_at FROM tasks
+     WHERE ($1::text[] IS NULL AND status <> '삭제됨' OR status = ANY($1)) ORDER BY id DESC LIMIT 200`, [list]);
   const s = await statusCounts();
   const tab = (href, label, n, on) => `<a class="tab ${on ? 'on' : ''}" href="${href}">${label}<em>${n}</em></a>`;
   const tabs = [
@@ -174,14 +180,20 @@ router.get('/tasks', async (req, res) => {
     tab('/tasks?group=active', '진행 중', s.active, group === 'active'),
     tab('/tasks?status=완료', '완료', s.done, status === '완료'),
     tab('/tasks?group=trouble', '확인 필요', s.trouble, group === 'trouble'),
+    tab('/tasks?group=trash', '휴지통', s.trash, group === 'trash'),
   ].join('');
+  // 확인 필요 탭에서는 바로 지우고, 휴지통 탭에서는 바로 되살릴 수 있게 한다.
+  const action = group === 'trouble' ? (t) => deleteForm(t.id, 'sm') : group === 'trash' ? (t) => restoreForm(t.id, 'sm') : null;
   const rows = r.rows.map((t) => `<tr><td class="muted">#${t.id}</td><td><a href="/tasks/${t.id}"><b>${esc(t.title)}</b></a></td><td>${badge(t.status)}</td>
     <td><div class="muted" style="margin-bottom:4px">${esc(STEP_NAMES[t.step] || '')}</div>${progressBar(t)}</td><td>${esc(t.deadline || '-')}</td>
-    <td class="muted">${t.reject_count} / ${t.rework_count}</td><td class="muted">${fmt(t.created_at)}</td></tr>`).join('');
-  const title = status === '승인대기' ? '결재 대기' : group === 'active' ? '진행 중인 업무' : group === 'trouble' ? '확인이 필요한 업무' : status || '업무함';
+    <td class="muted">${t.reject_count} / ${t.rework_count}</td><td class="muted">${fmt(group === 'trash' ? t.deleted_at : t.created_at)}</td>
+    ${action ? `<td>${action(t)}</td>` : ''}</tr>`).join('');
+  const title = status === '승인대기' ? '결재 대기' : group === 'active' ? '진행 중인 업무' : group === 'trouble' ? '확인이 필요한 업무' : group === 'trash' ? '휴지통' : status || '업무함';
+  const cols = action ? 8 : 7;
   res.send(layout('업무함', `${notice(req)}<h1>${icon('inbox', 24)}${esc(title)}</h1><div class="tabs">${tabs}</div>
-    <div class="card table-card" data-live="list"><table><tr><th>번호</th><th>업무</th><th>상태</th><th style="width:220px">진행</th><th>마감</th><th>반려/재작업</th><th>지시 시각</th></tr>
-    ${rows || `<tr><td colspan="7"><div class="empty">${icon('inbox', 32)}해당하는 업무가 없습니다.</div></td></tr>`}</table></div>`,
+    ${group === 'trash' ? '<p class="muted">지운 업무는 목록·검색과 직원들이 참고하는 과거 기록에서 빠져 있습니다. 되살리면 일시정지 상태로 돌아오고, "다시 진행"을 누르면 멈춘 곳부터 이어서 합니다.</p>' : ''}
+    <div class="card table-card" data-live="list"><table><tr><th>번호</th><th>업무</th><th>상태</th><th style="width:220px">진행</th><th>마감</th><th>반려/재작업</th><th>${group === 'trash' ? '지운 시각' : '지시 시각'}</th>${action ? '<th></th>' : ''}</tr>
+    ${rows || `<tr><td colspan="${cols}"><div class="empty">${icon('inbox', 32)}해당하는 업무가 없습니다.</div></td></tr>`}</table></div>`,
   { active: status === '승인대기' ? '/tasks?status=승인대기' : '/tasks' }));
 });
 
@@ -209,6 +221,9 @@ router.get('/tasks/:id', async (req, res) => {
   const controls = [];
   if (engine.PAUSABLE.includes(t.status)) controls.push(`<form method="post" action="/tasks/${id}/pause" class="inline"><button class="gray">일시정지</button></form>`);
   if (['일시정지', '한도대기', '실패'].includes(t.status)) controls.push(`<form method="post" action="/tasks/${id}/resume" class="inline"><button class="green">다시 진행</button></form>`);
+  if (engine.DELETABLE.includes(t.status)) controls.push(deleteForm(id));
+  const trashed = t.status === '삭제됨';
+  if (trashed) controls.push(`<p class="muted">휴지통에 있는 업무입니다(${fmt(t.deleted_at)}에 지움). 되살리면 일시정지 상태로 돌아옵니다.</p>${restoreForm(id)}`);
 
   const approval = t.status === '승인대기' && last ? `
     <div class="card approve">
@@ -270,7 +285,7 @@ router.get('/tasks/:id', async (req, res) => {
         <div class="card"><h2 style="margin-top:0">쫑전략 조언</h2>${adviceHtml}</div>
         <div class="card"><h2 style="margin-top:0">진행 기록</h2><table>${events.map((e) => `<tr><td class="muted">${fmt(e.created_at)}</td><td>${esc(e.kind)}</td><td>${esc(e.actor)}</td><td>${esc(e.detail || '')}</td></tr>`).join('')}</table></div>
       </div>
-      <div>${chatPanel(id, `업무 #${id}`)}</div>
+      <div>${chatPanel(id, `업무 #${id}`, trashed)}</div>
     </div>
   `, { active: '/tasks' }));
 });
@@ -336,6 +351,16 @@ router.post('/tasks/:id/resume', async (req, res) => {
   try { await engine.resume(id); back(res, `/tasks/${id}`, '다시 진행합니다.'); }
   catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
 });
+router.post('/tasks/:id/delete', async (req, res) => {
+  const id = Number(req.params.id);
+  try { await engine.trash(id); back(res, '/tasks?group=trouble', `업무 #${id}을 휴지통으로 옮겼습니다. 휴지통 탭에서 되살릴 수 있습니다.`); }
+  catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
+});
+router.post('/tasks/:id/restore', async (req, res) => {
+  const id = Number(req.params.id);
+  try { await engine.restore(id); back(res, `/tasks/${id}`, '되살렸습니다. 일시정지 상태입니다. "다시 진행"을 누르면 멈춘 곳부터 이어서 합니다.'); }
+  catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
+});
 
 // ───── HTML 보고서 ─────
 router.get('/tasks/:id/report', async (req, res) => {
@@ -377,7 +402,8 @@ router.post('/api/messages', async (req, res) => {
 
 // ───── 전체 메신저 ─────
 router.get('/messenger', async (req, res) => {
-  const r = await query(`SELECT m.*, t.title FROM (SELECT * FROM messages ORDER BY id DESC LIMIT 200) m LEFT JOIN tasks t ON t.id=m.task_id ORDER BY m.id`);
+  const r = await query(`SELECT m.*, t.title FROM (SELECT * FROM messages WHERE task_id IS NULL OR task_id NOT IN (SELECT id FROM tasks WHERE status='삭제됨')
+    ORDER BY id DESC LIMIT 200) m LEFT JOIN tasks t ON t.id=m.task_id ORDER BY m.id`);
   res.send(layout('메신저', `<h1>전체 메신저</h1><p class="muted">모든 업무의 대화가 실시간으로 올라옵니다. 말을 거시려면 해당 업무 화면이나 본부의 일반 대화 창을 쓰세요.</p>
     <div class="card chat all" data-all="1"><div class="chat-head">전체 대화 <span class="live muted">연결 중…</span></div><div class="working" data-all="1" hidden></div><div class="chat-log tall">${r.rows.map((m) => msgHtml(m, true)).join('')}</div></div>`, { active: '/messenger' }));
 });
@@ -393,7 +419,7 @@ router.get('/search', async (req, res) => {
   let html = '';
   if (q) {
     const rows = await memory.searchRecords(q, { limit: 50 });
-    const direct = await query(`SELECT id, title, status, created_at FROM tasks WHERE title ILIKE $1 OR instruction ILIKE $1 OR final_report ILIKE $1 ORDER BY id DESC LIMIT 30`, [`%${q.replace(/[%_\\]/g, '')}%`]);
+    const direct = await query(`SELECT id, title, status, created_at FROM tasks WHERE status <> '삭제됨' AND (title ILIKE $1 OR instruction ILIKE $1 OR final_report ILIKE $1) ORDER BY id DESC LIMIT 30`, [`%${q.replace(/[%_\\]/g, '')}%`]);
     const wiki = memory.wikiCandidates(q, 15);
     html = `
       <h2>업무</h2><table>${direct.rows.map((t) => `<tr><td>#${t.id}</td><td><a href="/tasks/${t.id}">${esc(t.title)}</a></td><td>${badge(t.status)}</td><td class="muted">${fmt(t.created_at)}</td></tr>`).join('') || '<tr><td class="muted">없음</td></tr>'}</table>
@@ -407,7 +433,8 @@ router.get('/search', async (req, res) => {
 // ───── 직원 ─────
 router.get('/staff', async (req, res) => {
   const r = await query(`SELECT e.*, (SELECT count(*)::int FROM ai_usage u WHERE u.employee_id=e.id) AS calls FROM employees e ORDER BY id`);
-  const notes = await query(`SELECT n.body, n.created_at, n.task_id, e.name FROM staff_notes n JOIN employees e ON e.id=n.employee_id ORDER BY n.id DESC LIMIT 30`);
+  const notes = await query(`SELECT n.body, n.created_at, n.task_id, e.name FROM staff_notes n JOIN employees e ON e.id=n.employee_id
+    WHERE n.task_id IS NULL OR n.task_id NOT IN (SELECT id FROM tasks WHERE status='삭제됨') ORDER BY n.id DESC LIMIT 30`);
   const rows = r.rows.map((e) => {
     const models = e.provider === 'claude' ? CLAUDE_MODELS : GEMINI_MODELS;
     return `<tr><td><b>${esc(e.name)}</b><br><span class="muted">${esc(e.title)}</span></td><td>${esc(e.duty)}</td><td>${esc(e.deliverables)}</td>
