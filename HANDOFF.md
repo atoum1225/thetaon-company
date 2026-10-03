@@ -64,6 +64,8 @@ employees(직원·모델), tasks(지시·상태·단계·정의 JSON·최종 보
 - agy 비대화(-p) 모드: search_web은 허락 없이 됨. read_url_content·run_command는 settings.json permissions.allow에 없으면 자동 거부되고, 하나라도 거부되면 답 전체가 빈 칸 → ai.js가 경고를 붙여 한 번 다시 묻는다. 권한은 전체 설정 파일 하나뿐(프로젝트별 설정 없음).
 - agy는 검색 결과의 Google 중계 주소(vertexaisearch.cloud.google.com)를 원문으로 열려 한다. 아무 사이트로나 넘어갈 수 있어 deny로 막았다(cloud.google.com은 허용 목록에서 뺌). ai.js는 열린 주소가 목록 밖이면 답을 버린다.
 - 원문 열기 호출은 2~4분 걸림(시험 133·251초) → 원문 모드만 시간 제한 10분.
+- 2026-10-03 업무 #6: 쫑전략 gemini-3.1-pro-high 한도(풀리는 데 약 25시간)로 회의가 멈춤. 같은 날 기능 시험으로 agy를 5번(원문 열기 포함) 부른 영향이 큼 → 실제 AI 시험은 꼭 필요한 만큼만. 이후 한도 시 Claude sonnet 대체(company.js), 한도 메시지 "in XhYmZs"로 풀리는 시각까지 Gemini를 건너뜀.
+- Claude CLI WebFetch 허용 규칙 `WebFetch(domain:go.kr)`은 www.kostat.go.kr에 안 맞음 → `domain:*.go.kr`도 함께 넣는다. Claude는 거부돼도 답이 사라지지 않고 permission_denials로 알려 준다. 다른 사이트로 넘어가는 주소도 다시 허락을 받는다.
 
 ## 남은 일·후보
 - 위키에서 확인 필요(업무 #2~#4 보고서에서 나옴): −22.7% 측정 조건이 문서마다 다름(6회 반복 vs 3회·512토큰 통제), KT 카탈로그 3쪽 "KT 마진 미포함" 문구 누락, 대외비 각주 관련 결정 #9 정리.

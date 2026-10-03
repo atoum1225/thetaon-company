@@ -6,6 +6,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - 서버는 127.0.0.1:4100에만 연다. 외부 공개·터널·포트 개방은 CEO 허용 없이는 하지 않는다.
 - `.env`는 열지도, 출력하지도 않는다(DB 비밀번호). 오류 문장은 `src/db.js`의 `safeMessage`를 거친다.
 - AI 연결은 구독 로그인만 쓴다. Claude는 Claude Code CLI(`claude -p`), 쫑전략(Gemini)은 Antigravity CLI(`%LOCALAPPDATA%\agy\bin\agy.exe`, stream-json 표준입력). API 키 방식은 쓰지 않는다. Gemini CLI는 2026-06-18 개인 계정 지원 종료로 쓸 수 없다.
+- 쫑전략(Gemini)이 구독 한도에 걸리면 같은 지시로 Claude sonnet이 대신한다(`src/company.js` askOnce, CEO 지시 2026-10-03). 발언 끝에 대체 표시, ai_usage 모델명에 "(쫑전략 대체)". 웹 조사는 Claude WebSearch/WebFetch(신뢰 도메인 `domain:X`·`domain:*.X` 허용 규칙).
 - AI 직원은 `%TEMP%\thetaon-work`에서 실행되고 C:\ThetaRO 위키만 읽기 도구로 볼 수 있다. C:\ThetaON(급여·은행 자료)은 AI가 볼 수 없다.
 - 예외: 쫑전략은 신뢰 사이트(`src/sources.js`) 외부 자료를 조사한다(CEO 지시 2026-10-03). 평소엔 검색(search_web)만, 원문 열기(read_url_content)는 CEO가 켜거나 김비서가 요청한 업무(tasks.research)에서만. 원문 허용·거부 목록은 agy 전체 설정(`~/.gemini/antigravity-cli/settings.json`)에 `node scripts/agy-permissions.js`로 맞춘다. 검색어에 회사 내부 정보를 넣지 않는다.
 - C:\ThetaON-Office는 폐기된 이전 시도라 건드리지 않는다.
@@ -33,6 +34,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `npm run backup` — 지금 백업. `node scripts/backup.js --test-restore`는 복원 시험까지
 - `node scripts/rules-test.js` — 금지 수치 검사 시험
 - `node scripts/research-test.js` — 쫑전략 외부 자료 조사 시험(검색만/대표님 켬/김비서 요청, 4101 가짜 서버)
+- `node scripts/fallback-test.js` — 쫑전략 한도 → Claude 대체 시험(4101 가짜 서버를 `$env:MOCK_GEMINI_LIMIT='1'`로 띄움)
 - `node scripts/trash-test.js` — 휴지통(삭제·되살리기) 시험(4101 가짜 서버, `$env:DB_NAME='thetaon_test'` 필요)
 - `node scripts/inspect.js [업무번호]` — 업무 상태·대화 훑어보기
 

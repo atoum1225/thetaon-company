@@ -35,31 +35,57 @@ async function ask(who, { taskId = null, purpose, prompt, schema = null, web = '
   }
 }
 
-async function askOnce(emp, def, { taskId, purpose, prompt, schema, web }) {
+// 쫑전략(Gemini)이 구독 한도에 걸리면 같은 지시로 Claude가 대신한다(대표님 지시 2026-10-03, 업무 #6이 25시간 멈춘 일).
+// 한도가 풀리는 시각까지는 Gemini를 다시 부르지 않고 바로 Claude로 간다(서버를 껐다 켜면 한 번 더 확인).
+const FALLBACK_MODEL = 'sonnet';
+let geminiBlockedUntil = 0;
+
+async function askOnce(emp, def, opts) {
+  if (emp.provider !== 'gemini') return callLogged(emp, def, opts, emp.provider);
+  if (Date.now() < geminiBlockedUntil) return { ...(await callLogged(emp, def, opts, 'claude')), fallback: 'claude' };
+  try {
+    return await callLogged(emp, def, opts, 'gemini');
+  } catch (err) {
+    if (!err.limit) throw err;
+    geminiBlockedUntil = err.retryAt || Date.now() + 60 * 60 * 1000;
+    console.error(`[대체] ${emp.name} Gemini 한도 → ${new Date(geminiBlockedUntil).toLocaleString('ko-KR')}까지 Claude가 대신합니다.`);
+    return { ...(await callLogged(emp, def, opts, 'claude')), fallback: 'claude' };
+  }
+}
+
+// AI를 한 번 부르고 사용량 장부에 남긴다. provider가 직원 본래 것과 다르면 대체 호출이다.
+async function callLogged(emp, def, { taskId, purpose, prompt, schema, web }, provider) {
+  const substitute = provider !== emp.provider;
+  const model = substitute ? FALLBACK_MODEL : emp.model;
+  const label = substitute ? `${model}(${emp.name} 대체)` : model;
   const started = Date.now();
   bus.startWork({ taskId, who: emp.name, purpose, startedAt: started });
   try {
     let res;
     if (process.env.AI_MOCK === '1') {
+      // MOCK_GEMINI_LIMIT=1이면 Gemini 호출을 한도 오류로 실패시켜 대체 경로를 시험한다.
+      if (provider === 'gemini' && process.env.MOCK_GEMINI_LIMIT === '1') {
+        throw new AiError('가짜 AI: 구독 사용량 한도(시험). in 0h1m0s', { limit: true, retryAt: Date.now() + 60 * 1000 });
+      }
       res = await mock.respond({ emp, purpose, prompt, schema, web });
     } else {
       const system = personaPrompt(def);
-      res = emp.provider === 'gemini'
-        ? await callGemini({ system, prompt, model: emp.model, schema, web })
-        : await callClaude({ system, prompt, model: emp.model, schema });
+      if (provider === 'gemini') res = await callGemini({ system, prompt, model, schema, web });
+      else if (emp.provider === 'gemini') res = await callClaude({ system, prompt, model, schema, web: web || 'off' });
+      else res = await callClaude({ system, prompt, model, schema });
     }
     if (schema && !res.json) throw new AiError(`${emp.name}의 답을 정해진 형식으로 읽지 못했습니다.`, { transient: true });
     await query(
       `INSERT INTO ai_usage (task_id, employee_id, provider, model, purpose, ok, duration_ms, input_tokens, output_tokens)
        VALUES ($1,$2,$3,$4,$5,true,$6,$7,$8)`,
-      [taskId, emp.id, process.env.AI_MOCK === '1' ? 'mock' : emp.provider, emp.model, purpose, Date.now() - started, res.usage?.input || 0, res.usage?.output || 0]
+      [taskId, emp.id, process.env.AI_MOCK === '1' ? 'mock' : provider, label, purpose, Date.now() - started, res.usage?.input || 0, res.usage?.output || 0]
     );
     return { ...res, emp };
   } catch (err) {
     await query(
       `INSERT INTO ai_usage (task_id, employee_id, provider, model, purpose, ok, duration_ms, error)
        VALUES ($1,$2,$3,$4,$5,false,$6,$7)`,
-      [taskId, emp.id, emp.provider, emp.model, purpose, Date.now() - started, safeMessage(err).slice(0, 500)]
+      [taskId, emp.id, provider, label, purpose, Date.now() - started, safeMessage(err).slice(0, 500)]
     ).catch(() => {});
     throw err;
   } finally {

@@ -133,7 +133,7 @@ const SOURCES_SCHEMA = {
   type: 'array',
   items: {
     type: 'object',
-    properties: { org: { type: 'string' }, title: { type: 'string' }, url: { type: 'string' }, date: { type: 'string' }, point: { type: 'string' } },
+    properties: { org: { type: 'string' }, title: { type: 'string' }, url: { type: 'string' }, date: { type: 'string' }, point: { type: 'string' }, opened: { type: 'boolean' } },
     required: ['org', 'title', 'url', 'date', 'point'],
   },
 };
@@ -147,14 +147,18 @@ const WEB_TASK = {
 };
 const SOURCES_RULE = `sources에는 실제로 찾은 자료만 적는다(최대 5개, 없으면 빈 목록). org=기관, title=자료 제목, url=찾은 주소(모르면 기관 홈페이지), date=발표 시기, point=이 업무에 관련된 내용 한 줄(개조식). 자료를 지어내지 않는다.`;
 
+// Gemini 한도로 Claude가 쫑전략 대신 답했을 때 붙이는 한 줄
+const FALLBACK_NOTE = '\n\n(Gemini 사용량 한도로 이번 조언은 Claude가 쫑전략 대신 작성)';
+
 // 찾은 자료를 저장하고, 메신저에 붙일 목록 글을 돌려준다.
-async function saveSources(taskId, meetingId, purpose, sources, used) {
+// 원문 확인 여부: Gemini는 실제로 연 주소 기록으로, Claude 대체는 모델이 표시한 opened로(원문 열기 허락이 있을 때만) 정한다.
+async function saveSources(taskId, meetingId, purpose, sources, used, web) {
   const opened = (used?.opened || []).map(hostOf);
   const lines = [];
   for (const s of (sources || []).slice(0, 8)) {
     const url = normalizeUrl(s.url);
     const trusted = isTrusted(url);
-    const wasOpened = !!url && opened.includes(hostOf(url));
+    const wasOpened = used?.byModel ? web === 'read' && s.opened === true && trusted : !!url && opened.includes(hostOf(url));
     await query(
       `INSERT INTO external_sources (task_id, meeting_id, purpose, org, title, url, pub_date, point, trusted, opened) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`,
       [taskId, meetingId, purpose, s.org, s.title, url, s.date, s.point, trusted, wasOpened]
@@ -334,8 +338,8 @@ const STEPS = {
         prompt: `${base}\n\n${await rules.rulesText()}\n\n[할 일]\n${round}라운드 조언자 발언. 논의에서 금지 수치나 조건 없는 수치가 쓰일 위험, 사업 리스크를 짚는다. ` +
           `외부 자료가 있으면 근거로 들되, 회사 위키·결정과 다르면 다르다고만 알린다. advice는 개조식(요지 한 줄 + "- " 항목 2~4개). 결정하지 말고 "~권함", "~위험 있음"처럼 권고로 쓴다. 자료 목록은 sources에만 넣고 advice에 되풀이하지 않는다.\n${task}`,
       });
-      const list = web === 'off' ? '' : await saveSources(t.id, m.id, 'advise_meeting', r.json.sources, r.web);
-      await post(t.id, '쫑전략', `${r.json.advice}${list}`, '발언', m.id);
+      const list = web === 'off' ? '' : await saveSources(t.id, m.id, 'advise_meeting', r.json.sources, r.web, web);
+      await post(t.id, '쫑전략', `${r.json.advice}${list}${r.fallback ? FALLBACK_NOTE : ''}`, '발언', m.id);
     } else {
       const r = await ask(speaker, {
         taskId: t.id, purpose: 'speak',
@@ -461,8 +465,8 @@ const STEPS = {
           `[할 일]\n산출물 전체를 보고 금지 수치 기준과 리스크 관점에서 조언한다. advice는 개조식(요지 한 줄 + "- " 항목 3~6개, "~권함" 같은 권고형), risks는 한 줄짜리 리스크 목록. 자료 목록은 sources에만. 결정하지 않는다.\n` +
           `산출물에 나온 외부 사실·시장 수치·정책 내용을 신뢰 사이트에서 확인해 맞는지, 최신인지 짚는다. ${WEB_TASK[web]}\n${SOURCES_RULE}`,
       });
-      const list = await saveSources(t.id, null, 'advise', r.json.sources, r.web);
-      const content = `${r.json.advice}${r.json.risks?.length ? `\n\n리스크:\n- ${r.json.risks.join('\n- ')}` : ''}${list}`;
+      const list = await saveSources(t.id, null, 'advise', r.json.sources, r.web, web);
+      const content = `${r.json.advice}${r.json.risks?.length ? `\n\n리스크:\n- ${r.json.risks.join('\n- ')}` : ''}${list}${r.fallback ? FALLBACK_NOTE : ''}`;
       await query('INSERT INTO advice (task_id, content) VALUES ($1,$2)', [t.id, content]);
       await post(t.id, '쫑전략', content);
       return;
