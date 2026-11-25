@@ -7,7 +7,7 @@ const schema = {
   required: ['answer', 'doc'],
 };
 const prompts = {
-  claude: "C:\\ThetaRO\\index.md 를 읽고 '세타로'가 무엇인지 한 문장으로 answer에, 근거 문서 이름을 doc에 적어 JSON으로 답해줘.",
+  claude: "D:\\ThetaRO\\index.md 를 읽고 '세타로'가 무엇인지 한 문장으로 answer에, 근거 문서 이름을 doc에 적어 JSON으로 답해줘.",
   gemini: '다음 문장에 대외 금지 수치 위험이 있는지 answer에 한두 문장으로, 문제 표현을 doc에 적어라: "세타로는 GPU 전력을 64% 절감합니다."',
 };
 

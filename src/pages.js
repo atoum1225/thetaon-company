@@ -8,6 +8,7 @@ const rules = require('./rules');
 const wiki = require('./wiki');
 const report = require('./report');
 const sources = require('./sources');
+const { WIKI_DIR } = require('./ai');
 
 const router = express.Router();
 const STEP_NAMES = ['', '① 접수', '② 과제 정의', '③ 회의 소집', '④ 토론', '⑤ 회의록·배정안', '⑥ CEO 승인 대기', '⑦ 담당자 수행', '⑧ 김비서 검수', '⑨ 전략 조언', '⑩ 최종 보고', '완료'];
@@ -320,12 +321,12 @@ function sourcesHtml(rows) {
 function wikiHtml(t) {
   const id = t.id;
   if (t.wiki_path) {
-    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2><p class="ok">저장했습니다: C:\\ThetaRO\\${esc(t.wiki_path)}</p>
+    return `<div class="card"><h2 style="margin-top:0">위키 저장</h2><p class="ok">저장했습니다: ${WIKI_DIR}\\${esc(t.wiki_path)}</p>
       <p class="muted">${fmt(t.wiki_saved_at)} · index.md와 log.md에도 한 줄씩 추가했습니다. 옵시디언에서 바로 보입니다.</p></div>`;
   }
   if (!t.final_report) return '';
   const p = wiki.plan(t);
-  const where = `C:\\ThetaRO\\${p.rel}`;
+  const where = `${WIKI_DIR}\\${p.rel}`;
   return `<div class="card"><h2 style="margin-top:0">위키 저장</h2>
     <p class="muted">최종 보고서를 그대로 위키에 저장합니다. AI를 다시 부르지 않고 바로 저장됩니다.</p>
     <table>
@@ -412,7 +413,7 @@ router.post('/tasks/:id/wiki/save', async (req, res) => {
   const id = Number(req.params.id);
   try {
     const r = await wiki.saveReport(id);
-    back(res, `/tasks/${id}`, `위키에 저장했습니다: C:\\ThetaRO\\${r.rel}${r.archived ? ` (달이 바뀌어 지난달 로그 ${r.archived}줄을 archive로 옮겼습니다)` : ''}`);
+    back(res, `/tasks/${id}`, `위키에 저장했습니다: ${WIKI_DIR}\\${r.rel}${r.archived ? ` (달이 바뀌어 지난달 로그 ${r.archived}줄을 archive로 옮겼습니다)` : ''}`);
   } catch (err) { back(res, `/tasks/${id}`, safeMessage(err)); }
 });
 
@@ -457,7 +458,7 @@ router.get('/search', async (req, res) => {
     html = `
       <h2>업무</h2><table>${direct.rows.map((t) => `<tr><td>#${t.id}</td><td><a href="/tasks/${t.id}">${esc(t.title)}</a></td><td>${badge(t.status)}</td><td class="muted">${fmt(t.created_at)}</td></tr>`).join('') || '<tr><td class="muted">없음</td></tr>'}</table>
       <h2>결정·조언·산출물·메모</h2><table>${rows.map((x) => `<tr><td>${esc(x.kind)}</td><td>${x.task_id ? `<a href="/tasks/${x.task_id}">#${x.task_id}</a>` : ''}</td><td>${esc(String(x.text).slice(0, 300))}</td><td class="muted">${esc(x.who || '')} ${fmt(x.created_at)}</td></tr>`).join('') || '<tr><td class="muted">없음</td></tr>'}</table>
-      <h2>위키 문서 후보 (C:\\ThetaRO, 읽기 전용)</h2><table>${wiki.map((w) => `<tr><td>${esc(w.name)}</td><td>${esc(w.summary)}</td></tr>`).join('') || '<tr><td class="muted">없음</td></tr>'}</table>`;
+      <h2>위키 문서 후보 (${WIKI_DIR}, 읽기 전용)</h2><table>${wiki.map((w) => `<tr><td>${esc(w.name)}</td><td>${esc(w.summary)}</td></tr>`).join('') || '<tr><td class="muted">없음</td></tr>'}</table>`;
   }
   res.send(layout('과거 업무 검색', `<h1>과거 업무 검색</h1>
     <form><div class="row"><input type="text" name="q" value="${esc(q)}" placeholder="예: 비이랩 요금, KT 카탈로그, 한전"><div style="flex:0"><button>검색</button></div></div></form>${html}`, { active: '/search' }));

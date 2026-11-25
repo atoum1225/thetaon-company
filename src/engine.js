@@ -6,6 +6,7 @@ const bus = require('./bus');
 const rules = require('./rules');
 const memory = require('./memory');
 const { isTrusted, hostOf, normalizeUrl } = require('./sources');
+const { WIKI_DIR } = require('./ai');
 
 const ACTIVE = ['접수', '회의중', '수행중', '검수중', '전략조언'];
 // 승인대기도 멈출 수 있다. 다시 진행하면 승인대기로 돌아간다.
@@ -253,7 +254,7 @@ const STEPS = {
     const wiki = memory.wikiCandidates(t.instruction);
     const prompt = `[CEO 지시]\n${t.instruction}\n\n[회사 기본 정보]\n${await rules.companyText()}\n\n` +
       `[관련 과거 기록(본부 DB)]\n${memory.recordsText(records)}\n\n` +
-      `[관련 위키 문서 후보(C:\\ThetaRO, 읽기 전용)]\n${memory.wikiText(wiki)}\n` +
+      `[관련 위키 문서 후보(${WIKI_DIR}, 읽기 전용)]\n${memory.wikiText(wiki)}\n` +
       `필요하면 위 경로의 파일을 열어 확인한다. index.md나 log.md 전체를 읽지는 않는다.\n\n` +
       `[할 일]\n목표·범위·마감을 정리하고, 회의에 부를 담당자를 황기획·송개발·서영업 중 필요한 사람만 고른다(쫑전략은 조언자로 자동 참석).\n` +
       `참고한 과거 기록과 위키 문서를 references에 적는다(예: "결정 #3", "위키: kepco-proposal"). 없으면 빈 목록.\n` +
@@ -343,7 +344,7 @@ const STEPS = {
     } else {
       const r = await ask(speaker, {
         taskId: t.id, purpose: 'speak',
-        prompt: `${base}\n\n[할 일]\n지금은 ${round}라운드(최대 ${MAX_ROUNDS}), 네 차례다. 자기 담당 관점에서 의견을 낸다. 개조식: 요지 한 줄 + "- " 항목 3~5개(앞사람 말에 대한 의견, 할 수 있는 일, 필요한 것). 앞사람이 한 말은 되풀이하지 않는다. 결정은 김비서와 CEO가 한다.\n위키 근거가 필요하면 C:\\ThetaRO 파일을 열어 확인해도 된다.`,
+        prompt: `${base}\n\n[할 일]\n지금은 ${round}라운드(최대 ${MAX_ROUNDS}), 네 차례다. 자기 담당 관점에서 의견을 낸다. 개조식: 요지 한 줄 + "- " 항목 3~5개(앞사람 말에 대한 의견, 할 수 있는 일, 필요한 것). 앞사람이 한 말은 되풀이하지 않는다. 결정은 김비서와 CEO가 한다.\n위키 근거가 필요하면 ${WIKI_DIR} 파일을 열어 확인해도 된다.`,
       });
       await post(t.id, speaker, r.text, '발언', m.id);
     }
@@ -398,7 +399,7 @@ const STEPS = {
         `${await rules.rulesText()}\n\n[네가 맡은 일]\n${a.title}: ${a.description}${rework}\n\n` +
         `[쓰는 방법]\n산출물 본문만 마크다운 개조식으로 쓴다(인사말 없이). 맨 위 "## 요약"에 "- " 항목 3개 이내, 이어서 "## 소제목"별 항목, 비교·수치·일정은 표.\n` +
         `대외로 나갈 글(메일 문안, 제안서 문장 등)은 그 글 자체는 받는 사람이 읽을 형태로 쓰되, 앞뒤 설명은 개조식으로.\n` +
-        `수치나 사실에는 근거 문서를 괄호로 붙이고, 근거가 없으면 "미확인"이라고 쓴다. 위키 근거가 필요하면 C:\\ThetaRO 파일을 열어 확인한다.`,
+        `수치나 사실에는 근거 문서를 괄호로 붙이고, 근거가 없으면 "미확인"이라고 쓴다. 위키 근거가 필요하면 ${WIKI_DIR} 파일을 열어 확인한다.`,
     });
     const version = prev ? prev.version + 1 : 1;
     await query(

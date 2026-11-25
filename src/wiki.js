@@ -1,4 +1,4 @@
-// 최종 보고서를 C:\ThetaRO 위키에 그대로 저장한다(AI를 다시 부르지 않음).
+// 최종 보고서를 D:\ThetaRO 위키에 그대로 저장한다(AI를 다시 부르지 않음).
 // 위키 CLAUDE.md 규칙에 맞게 본부가 틀만 씌운다: frontmatter, Summary·Context·Details·Links,
 // 영어 kebab-case 파일 이름, index.md 한 줄 요약, log.md 한 줄(월별 보관 포함).
 // 새 문서만 만든다. 기존 wiki 문서와 raw는 건드리지 않고, index.md와 log.md는 한 줄씩 추가만 한다.

@@ -7,11 +7,11 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `.env`는 열지도, 출력하지도 않는다(DB 비밀번호). 오류 문장은 `src/db.js`의 `safeMessage`를 거친다.
 - AI 연결은 구독 로그인만 쓴다. Claude는 Claude Code CLI(`claude -p`), 쫑전략(Gemini)은 Antigravity CLI(`%LOCALAPPDATA%\agy\bin\agy.exe`, stream-json 표준입력). API 키 방식은 쓰지 않는다. Gemini CLI는 2026-06-18 개인 계정 지원 종료로 쓸 수 없다.
 - 쫑전략(Gemini)이 구독 한도에 걸리면 같은 지시로 Claude sonnet이 대신한다(`src/company.js` askOnce, CEO 지시 2026-10-03). 발언 끝에 대체 표시, ai_usage 모델명에 "(쫑전략 대체)". 웹 조사는 Claude WebSearch/WebFetch(신뢰 도메인 `domain:X`·`domain:*.X` 허용 규칙).
-- AI 직원은 `%TEMP%\thetaon-work`에서 실행되고 C:\ThetaRO 위키만 읽기 도구로 볼 수 있다. C:\ThetaON(급여·은행 자료)은 AI가 볼 수 없다.
+- AI 직원은 `%TEMP%\thetaon-work`에서 실행되고 D:\ThetaRO 전체를 읽기 도구로 볼 수 있다(Claude 직원 4명, CEO 지시 2026-11-25. 위키가 C에서 D로 옮겨짐. 위치는 src/ai.js WIKI_DIR 한 곳, 서버 시작 화면에 "위키 폴더"로 표시). C:\ThetaON(급여·은행 자료)은 AI가 볼 수 없다.
 - 예외: 쫑전략은 신뢰 사이트(`src/sources.js`) 외부 자료를 조사한다(CEO 지시 2026-10-03). 평소엔 검색(search_web)만, 원문 열기(read_url_content)는 CEO가 켜거나 김비서가 요청한 업무(tasks.research)에서만. 원문 허용·거부 목록은 agy 전체 설정(`~/.gemini/antigravity-cli/settings.json`)에 `node scripts/agy-permissions.js`로 맞춘다. 검색어에 회사 내부 정보를 넣지 않는다.
 - C:\ThetaON-Office는 폐기된 이전 시도라 건드리지 않는다.
 - 세타로 소스코드 연결(송개발의 코드 작업)은 보류. 소스 위치가 정해지면 Phase를 추가한다.
-- 안내와 화면 문구는 비개발자 CEO 기준의 쉬운 한국어로 쓴다.
+- 안내와 화면 문구는 비개발자 CEO 기준의 한국어로 쓴다.
 
 ## 구성
 - `src/server.js` — Express + Socket.IO, Host/Origin 검사, 하루 1회 자동 백업
@@ -20,7 +20,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - `src/ai.js` — Claude·Antigravity CLI 호출기(CLI 사용법이 바뀌면 여기만 고친다)
 - `src/staff.js` — 직원 5명 명부와 페르소나
 - `src/sources.js` — 쫑전략 신뢰 사이트 목록·거부 주소·주소 검사기. 바꾸면 `node scripts/agy-permissions.js` 실행
-- `src/rules.js` — 금지·조건부 수치 목록(정본: C:\ThetaRO 위키, CEO 확인 2026-09-27)과 검사기
+- `src/rules.js` — 금지·조건부 수치 목록(정본: D:\ThetaRO 위키, CEO 확인 2026-09-27)과 검사기
 - `src/memory.js` — 과거 기록 검색(pg_trgm/ILIKE)과 위키 index.md 후보 찾기
 - `src/pages.js`, `src/views.js`, `public/` — 업무 사이트와 메신저 화면
 - `src/wiki.js` — 위키 저장: 최종 보고서를 AI 없이 그대로 AI-Sessions/wiki/projects/thetaon-hq-task-N-report.md로 저장, index.md(Projects)·log.md 한 줄 추가(월별 로그 보관 포함). 기존 문서·raw는 건드리지 않는다. 시험은 WIKI_DIR로 위키 사본을 가리켜서 한다. 미리 보기: node scripts/wiki-preview.js N (scripts/wiki-stop-test.js는 폐기된 저장안 방식용이라 쓰지 않는다)

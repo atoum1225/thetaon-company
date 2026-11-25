@@ -1,8 +1,8 @@
 // 금지 수치·조건부 수치 검사. 값뿐 아니라 지표 이름과 범위 표기 우회도 잡는다.
-// 정본은 C:\ThetaRO 위키(CEO 확인 2026-09-27). DB company_facts에 넣어 두고 여기서 읽는다.
+// 정본은 D:\ThetaRO 위키(CEO 확인 2026-09-27). DB company_facts에 넣어 두고 여기서 읽는다.
 const { query } = require('./db');
 
-const SRC = 'C:\\ThetaRO 위키 (thetaon-core-technologies, 2026-07-17 에너지 절감 결정, 2026-07-20 Intel 결정, 2026-09-03 IR 재등장 오류) · CEO 확인 2026-09-27';
+const SRC = 'D:\\ThetaRO 위키 (thetaon-core-technologies, 2026-07-17 에너지 절감 결정, 2026-07-20 Intel 결정, 2026-09-03 IR 재등장 오류) · CEO 확인 2026-09-27';
 
 // level: forbidden = 쓰면 안 됨(검수 자동 미달), conditional = 조건을 갖췄는지 사람이 확인
 const DEFAULT_RULES = [
@@ -51,7 +51,7 @@ async function seed(db) {
     await db.query(
       `INSERT INTO company_facts (category, key, content, source) VALUES ('company',$1,$2,$3)
        ON CONFLICT (category, key) DO UPDATE SET content=EXCLUDED.content`,
-      [key, content, 'C:\\ThetaRO\\AI-Sessions\\wiki\\concepts\\thetaon-corporate-profile.md 외']
+      [key, content, 'D:\\ThetaRO\\AI-Sessions\\wiki\\concepts\\thetaon-corporate-profile.md 외']
     );
   }
 }

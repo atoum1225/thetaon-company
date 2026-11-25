@@ -10,6 +10,7 @@ const engine = require('./engine');
 const bus = require('./bus');
 const { startDailyBackup } = require('./backup');
 const { render } = require('./report');
+const { WIKI_DIR } = require('./ai');
 
 const HOST = '127.0.0.1';
 const PORT = Number(process.env.PORT || 4100);
@@ -52,6 +53,9 @@ io.on('connection', (socket) => {
 
 server.listen(PORT, HOST, async () => {
   console.log(`세타온 본부가 켜졌습니다: http://${HOST}:${PORT}  (끄려면 Ctrl + C)`);
+  // 직원들이 읽는 위키 폴더(읽기 전용). 없으면 위키 참고·위키 저장이 안 되니 바로 보이게 알린다.
+  const wikiOk = require('fs').existsSync(require('path').join(WIKI_DIR, 'index.md'));
+  console.log(`위키 폴더: ${WIKI_DIR} (${wikiOk ? '있음' : '찾을 수 없음 — 위키 참고와 위키 저장이 안 됩니다'})`);
   if (process.env.AI_MOCK === '1') console.log('[가짜 AI 시험 모드] 실제 AI를 부르지 않습니다.');
   try {
     await engine.start();

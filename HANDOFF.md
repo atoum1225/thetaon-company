@@ -21,7 +21,7 @@
         ├─ Claude Code CLI `claude -p` (김비서·황기획·송개발·서영업, 모델 sonnet, 위키 읽기 도구만)
         ├─ Antigravity CLI `agy` (쫑전략, gemini-3.1-pro-high, plan 모드, 신뢰 사이트 웹 검색·원문 열기만)
         ├─ PostgreSQL 18 (공유 기억)
-        └─ C:\ThetaRO 위키 (읽기 전용 참고, 최종 보고서 저장만 CEO 버튼으로)
+        └─ D:\ThetaRO 위키 (읽기 전용 참고, 최종 보고서 저장만 CEO 버튼으로)
 ```
 
 ### 업무 흐름 (tasks.step 1~11)
@@ -40,7 +40,7 @@ employees(직원·모델), tasks(지시·상태·단계·정의 JSON·최종 보
 - 쫑전략은 Antigravity CLI(agy)로 동작. Gemini CLI는 개인 계정 지원 종료(2026-06-18)로 사용 불가.
 - 쫑전략은 김종배 이사(CIO, 쫑2) 관점을 참고한 AI 조언자. 조언만 하고 결정하지 않음. 화면에 "AI 조언"으로 표시.
 - 쫑전략 외부 자료 조사(2026-10-03): 정부·공공기관, 연구기관, 언론사, 대기업 등 신뢰 사이트(`src/sources.js`)만. 회의마다 1라운드 첫 발언과 ⑨ 산출물 조언 때 검색(2라운드부터는 찾은 자료 인용). 원문 열기는 대표님이 지시(업무 지시 체크박스·업무 화면 켜기/끄기)하거나 김비서가 ② 과제 정의에서 요청한 업무만. 대표님이 켜거나 끈 업무는 김비서가 바꾸지 않음. 찾은 자료는 external_sources 표, 업무 화면 "외부 자료" 카드, 최종 보고서 "외부 참고 자료" 절에 [원문 확인함/원문 확인 전]으로 남김.
-- C:\ThetaRO 위키는 AI가 읽기만 함. 위키 저장은 CEO가 버튼을 눌렀을 때 최종 보고서를 그대로(AI 재작성 없이) `projects/thetaon-hq-task-N-report.md`로 저장.
+- D:\ThetaRO 위키는 AI가 읽기만 함. 위키 저장은 CEO가 버튼을 눌렀을 때 최종 보고서를 그대로(AI 재작성 없이) `projects/thetaon-hq-task-N-report.md`로 저장.
 - 메신저는 사이트에 통합. 세타로 소스코드 연결은 "시기상조, 검토 안 함"(2026-09-28) — 다시 꺼내지 않는다.
 - C:\ThetaON-Office(옛 API 키 방식)는 폐기, 건드리지 않음.
 
@@ -60,6 +60,7 @@ employees(직원·모델), tasks(지시·상태·단계·정의 JSON·최종 보
 - AI 호출 6분 넘게 응답 없으면 끊고 한 번 자동 재시도.
 - Claude Pro로는 5시간에 업무 2~3건이 현실적(검수·산출물 호출이 1~2분씩).
 - 확인 스크립트가 잘못 끝나 "멈췄다"고 오판한 적 있음 → 상태를 볼 때는 `node scripts/inspect.js N --timeline`의 시각을 꼭 확인.
+- 2026-11-25: 위키가 C:\ThetaRO에서 D:\ThetaRO로 옮겨졌는데 코드는 C를 가리켜 위키 참고·저장이 안 되던 상태였음 → WIKI_DIR 기본값을 D로, 지시문·화면 문구는 WIKI_DIR을 따르게 바꿈. Claude 직원 4명이 D:\ThetaRO 전체를 읽기 전용으로 봄(CEO 결정).
 - 이 폴더에서는 파일 삭제(Remove-Item, git rm)가 하네스에 막힌다.
 - agy 비대화(-p) 모드: search_web은 허락 없이 됨. read_url_content·run_command는 settings.json permissions.allow에 없으면 자동 거부되고, 하나라도 거부되면 답 전체가 빈 칸 → ai.js가 경고를 붙여 한 번 다시 묻는다. 권한은 전체 설정 파일 하나뿐(프로젝트별 설정 없음).
 - agy는 검색 결과의 Google 중계 주소(vertexaisearch.cloud.google.com)를 원문으로 열려 한다. 아무 사이트로나 넘어갈 수 있어 deny로 막았다(cloud.google.com은 허용 목록에서 뺌). ai.js는 열린 주소가 목록 밖이면 답을 버린다.

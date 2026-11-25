@@ -7,7 +7,8 @@ const os = require('os');
 const path = require('path');
 
 // 시험할 때는 WIKI_DIR로 위키 사본을 가리켜 실제 위키를 건드리지 않는다.
-const WIKI_DIR = process.env.WIKI_DIR || 'C:\\ThetaRO';
+// 위키는 2026-11 D 드라이브로 옮겨졌다(대표님 지시 2026-11-25: Claude 직원 4명이 D:\ThetaRO 전체를 읽기 전용으로 봄).
+const WIKI_DIR = process.env.WIKI_DIR || 'D:\\ThetaRO';
 const CLAUDE_BIN = process.env.CLAUDE_BIN || path.join(os.homedir(), '.local', 'bin', 'claude.exe');
 const AGY_BIN = process.env.AGY_BIN || path.join(process.env.LOCALAPPDATA || '', 'agy', 'bin', 'agy.exe');
 // AI가 일하는 빈 폴더. C:\atoum 밖에 둬서 .env나 본부 코드가 AI 눈에 들어가지 않게 한다.
