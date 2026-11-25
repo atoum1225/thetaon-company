@@ -9,6 +9,7 @@ CEO가 비서실장(김비서)에게 지시하면 AI 직원들이 회의·분업
 - 쫑전략(Gemini)이 구독 한도에 걸리면 같은 지시로 Claude sonnet이 대신한다(`src/company.js` askOnce, CEO 지시 2026-10-03). 발언 끝에 대체 표시, ai_usage 모델명에 "(쫑전략 대체)". 웹 조사는 Claude WebSearch/WebFetch(신뢰 도메인 `domain:X`·`domain:*.X` 허용 규칙).
 - AI 직원은 `%TEMP%\thetaon-work`에서 실행되고 D:\ThetaRO 전체를 읽기 도구로 볼 수 있다(Claude 직원 4명, CEO 지시 2026-11-25. 위키가 C에서 D로 옮겨짐. 위치는 src/ai.js WIKI_DIR 한 곳, 서버 시작 화면에 "위키 폴더"로 표시). C:\ThetaON(급여·은행 자료)은 AI가 볼 수 없다.
 - 예외: 쫑전략은 신뢰 사이트(`src/sources.js`) 외부 자료를 조사한다(CEO 지시 2026-10-03). 평소엔 검색(search_web)만, 원문 열기(read_url_content)는 CEO가 켜거나 김비서가 요청한 업무(tasks.research)에서만. 원문 허용·거부 목록은 agy 전체 설정(`~/.gemini/antigravity-cli/settings.json`)에 `node scripts/agy-permissions.js`로 맞춘다. 검색어에 회사 내부 정보를 넣지 않는다.
+- 이체·지급 승인은 CEO만 한다(CEO 지시 2026-11-25). 직원 업무분장은 `src/staff.js`에서 고치고 `npm run db:init`으로 직원 화면에 반영한다. 세무·자금 업무 담당: 황기획(신고 일정표·고정비), 송개발(장부·증빙 양식·집계표), 서영업(세금계산서 발행·입금 확인), 쫑전략(자금·세무 참고 의견), 김비서(배정·검수).
 - C:\ThetaON-Office는 폐기된 이전 시도라 건드리지 않는다.
 - 세타로 소스코드 연결(송개발의 코드 작업)은 보류. 소스 위치가 정해지면 Phase를 추가한다.
 - 안내와 화면 문구는 비개발자 CEO 기준의 한국어로 쓴다.
